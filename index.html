@@ -1,0 +1,315 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Therapeutic Solar Expanse</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    body { 
+      margin: 0; 
+      overflow: hidden; 
+      background-color: #050505; 
+      touch-action: none; 
+      font-family: ui-sans-serif, system-ui, sans-serif; 
+    }
+    canvas { 
+      display: block; 
+      width: 100vw; 
+      height: 100vh; 
+    }
+    .zone-label {
+      position: absolute;
+      top: 0; left: 0;
+      color: #FFDAB9;
+      font-size: 0.75rem;
+      font-weight: 600;
+      letter-spacing: 0.15em;
+      background: rgba(17, 24, 39, 0.85);
+      padding: 6px 12px;
+      border-left: 2px solid #FFDAB9;
+      pointer-events: none;
+      backdrop-filter: blur(4px);
+      box-shadow: 0 4px 10px rgba(0,0,0,0.5);
+      will-change: transform;
+      text-transform: uppercase;
+    }
+  </style>
+</head>
+<body class="w-screen h-screen">
+  
+  <canvas id="view"></canvas>
+  
+  <!-- Interface Annotations Container -->
+  <div id="labels"></div>
+  
+  <button id="sound-toggle" class="fixed top-6 right-6 z-40 bg-gray-900/80 text-[#FFDAB9] border border-[#FFDAB9]/50 rounded-full px-4 py-2 text-xs md:text-sm font-bold tracking-widest backdrop-blur-md shadow-[0_0_15px_rgba(255,218,185,0.1)] hover:bg-[#FFDAB9] hover:text-gray-900 transition-all duration-300 focus:outline-none focus:ring-2 focus:ring-[#FFDAB9] cursor-pointer" aria-label="Toggle Sound">SOUND: OFF</button>
+  
+  <!-- Accessible Entry Interface (WCAG AAA Contrast: #111827 vs #FFDAB9) -->
+  <div id="intro" class="fixed inset-0 z-50 flex items-center justify-center bg-black/90 backdrop-blur-md transition-opacity duration-1000">
+    <button id="listen-btn" class="px-10 py-5 bg-gray-900 text-[#FFDAB9] border-2 border-[#FFDAB9] rounded-full font-bold text-xl tracking-widest shadow-[0_0_40px_rgba(255,218,185,0.15)] hover:bg-[#FFDAB9] hover:text-gray-900 transition-all duration-300 cursor-pointer" aria-label="Listen and enter the experience">
+      LISTEN
+    </button>
+  </div>
+
+  <script>
+    const view = document.getElementById('view');
+    const ctx = view.getContext('2d');
+    const labelsDiv = document.getElementById('labels');
+    const listenBtn = document.getElementById('listen-btn');
+    const introScreen = document.getElementById('intro');
+    const soundToggle = document.getElementById('sound-toggle');
+
+    let w, h;
+    let panels = [];
+    const panelSize = 55;
+    const gap = 4;
+    let splashes = [];
+    
+    // Grid tracking
+    let cols, rows, gridW, gridH;
+    
+    // Continuous panning motion
+    let panX = 0, panY = 0;
+    let targetPanX = 0, targetPanY = 0;
+
+    // Interface points mapping
+    const zones = [
+      { x: 0.25, y: 0.35, label: "AIR", element: null },
+      { x: 0.75, y: 0.45, label: "CLOUDS", element: null },
+      { x: 0.45, y: 0.80, label: "WATER", element: null }
+    ];
+
+    // Audio context state
+    let audioCtx, masterGain;
+    let isPlaying = false;
+    let lastPluck = 0;
+    
+    // Warm pentatonic frequencies
+    const scale = [196.00, 220.00, 261.63, 293.66, 329.63, 392.00, 440.00];
+
+    function build() {
+      w = view.width = window.innerWidth;
+      h = view.height = window.innerHeight;
+      
+      panels = [];
+      cols = Math.ceil(w / (panelSize + gap)) + 2;
+      rows = Math.ceil(h / (panelSize + gap)) + 2;
+      gridW = cols * (panelSize + gap);
+      gridH = rows * (panelSize + gap);
+      
+      for(let r = 0; r < rows; r++) {
+        for(let c = 0; c < cols; c++) {
+          panels.push({
+            cx: c * (panelSize + gap),
+            cy: r * (panelSize + gap),
+            energy: 0
+          });
+        }
+      }
+
+      // Rebuild map annotations
+      labelsDiv.innerHTML = '';
+      zones.forEach(z => {
+        const el = document.createElement('div');
+        el.className = 'zone-label';
+        el.innerText = z.label;
+        labelsDiv.appendChild(el);
+        z.element = el;
+      });
+    }
+
+    window.addEventListener('resize', build);
+
+    function startAudio() {
+      if(isPlaying) return;
+      audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      masterGain = audioCtx.createGain();
+      masterGain.connect(audioCtx.destination);
+      masterGain.gain.value = 0.6;
+
+      // Deep therapeutic drone
+      const drone = audioCtx.createOscillator();
+      drone.type = 'sine';
+      drone.frequency.value = 73.42;
+      const dGain = audioCtx.createGain();
+      dGain.gain.value = 0.25;
+      drone.connect(dGain);
+      dGain.connect(masterGain);
+      drone.start();
+
+      isPlaying = true;
+    }
+
+    function triggerEffect(x, y) {
+      splashes.push({ x, y, radius: 0, life: 1 });
+      
+      if(!isPlaying || !audioCtx) return;
+      
+      const now = Date.now();
+      if(now - lastPluck > 120) {
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        
+        osc.type = 'triangle';
+        osc.frequency.value = scale[Math.floor(Math.random() * scale.length)];
+        
+        osc.connect(gain);
+        gain.connect(masterGain);
+        
+        osc.start();
+        gain.gain.setValueAtTime(0, audioCtx.currentTime);
+        gain.gain.linearRampToValueAtTime(0.12, audioCtx.currentTime + 0.05);
+        gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 1.5);
+        osc.stop(audioCtx.currentTime + 1.6);
+        
+        lastPluck = now;
+      }
+    }
+
+    function handlePointer(x, y) {
+      targetPanX = (x / w - 0.5) * 120;
+      targetPanY = (y / h - 0.5) * 120;
+      triggerEffect(x, y);
+    }
+
+    view.addEventListener('mousemove', e => handlePointer(e.clientX, e.clientY));
+    view.addEventListener('touchmove', e => {
+      e.preventDefault();
+      handlePointer(e.touches[0].clientX, e.touches[0].clientY);
+    }, { passive: false });
+
+    listenBtn.addEventListener('click', () => {
+      startAudio();
+      introScreen.style.opacity = '0';
+      setTimeout(() => introScreen.remove(), 1000);
+      triggerEffect(w/2, h/2);
+      soundToggle.innerText = 'SOUND: ON';
+      soundToggle.classList.add('bg-[#FFDAB9]', 'text-gray-900');
+      soundToggle.classList.remove('bg-gray-900/80', 'text-[#FFDAB9]');
+    });
+
+    soundToggle.addEventListener('click', () => {
+      if (!audioCtx) {
+        startAudio();
+        soundToggle.innerText = 'SOUND: ON';
+        soundToggle.classList.add('bg-[#FFDAB9]', 'text-gray-900');
+        soundToggle.classList.remove('bg-gray-900/80', 'text-[#FFDAB9]');
+      } else {
+        if (isPlaying) {
+          masterGain.gain.linearRampToValueAtTime(0, audioCtx.currentTime + 0.1);
+          isPlaying = false;
+          soundToggle.innerText = 'SOUND: OFF';
+          soundToggle.classList.remove('bg-[#FFDAB9]', 'text-gray-900');
+          soundToggle.classList.add('bg-gray-900/80', 'text-[#FFDAB9]');
+        } else {
+          masterGain.gain.linearRampToValueAtTime(0.6, audioCtx.currentTime + 0.1);
+          isPlaying = true;
+          soundToggle.innerText = 'SOUND: ON';
+          soundToggle.classList.add('bg-[#FFDAB9]', 'text-gray-900');
+          soundToggle.classList.remove('bg-gray-900/80', 'text-[#FFDAB9]');
+        }
+      }
+    });
+
+    function draw() {
+      ctx.fillStyle = '#050a0f';
+      ctx.fillRect(0, 0, w, h);
+
+      // Smooth easing for motion
+      panX += (targetPanX - panX) * 0.04;
+      panY += (targetPanY - panY) * 0.04;
+
+      // Update interactive waves
+      splashes.forEach(s => {
+        s.radius += 14;
+        s.life *= 0.92;
+        
+        panels.forEach(p => {
+          let rawX = p.cx + panX;
+          let rawY = p.cy + panY;
+          let px = ((rawX % gridW) + gridW) % gridW - panelSize;
+          let py = ((rawY % gridH) + gridH) % gridH - panelSize;
+          
+          const dx = px + panelSize/2 - s.x;
+          const dy = py + panelSize/2 - s.y;
+          
+          if (Math.abs(dx) < s.radius + panelSize && Math.abs(dy) < s.radius + panelSize) {
+            const dist = Math.sqrt(dx*dx + dy*dy);
+            if (Math.abs(dist - s.radius) < panelSize * 1.5) {
+              p.energy += 0.45 * s.life;
+            }
+          }
+        });
+      });
+      splashes = splashes.filter(s => s.life > 0.02);
+
+      // Draw reflective surface layer
+      panels.forEach(p => {
+        let rawX = p.cx + panX;
+        let rawY = p.cy + panY;
+        let px = ((rawX % gridW) + gridW) % gridW - panelSize;
+        let py = ((rawY % gridH) + gridH) % gridH - panelSize;
+
+        p.energy *= 0.86;
+        if(p.energy > 1) p.energy = 1;
+
+        // Depth-based peach reflection logic
+        let ratio = py / h;
+        if(ratio > 1) ratio = 1;
+        if(ratio < 0) ratio = 0;
+        
+        const r = 255 - ratio * (255 - 20);
+        const g = 218 - ratio * (218 - 30);
+        const b = 185 - ratio * (185 - 45);
+
+        const energyIntensity = p.energy * 255;
+        
+        ctx.fillStyle = `rgb(${Math.min(255, r * 0.35 + energyIntensity)}, ${Math.min(255, g * 0.35 + energyIntensity)}, ${Math.min(255, b * 0.45 + energyIntensity)})`;
+        ctx.fillRect(px, py, panelSize, panelSize);
+      });
+
+      // Overlay interface lines
+      ctx.strokeStyle = 'rgba(255, 218, 185, 0.4)';
+      ctx.lineWidth = 1.5;
+      ctx.setLineDash([4, 6]);
+      ctx.beginPath();
+      
+      const screenZones = zones.map(z => ({
+        x: z.x * w + panX * 0.4,
+        y: z.y * h + panY * 0.4
+      }));
+
+      screenZones.forEach((sz, i) => {
+        if(i === 0) ctx.moveTo(sz.x, sz.y);
+        else ctx.lineTo(sz.x, sz.y);
+      });
+      ctx.stroke();
+      ctx.setLineDash([]);
+
+      // Draw map points
+      screenZones.forEach((sz, i) => {
+        ctx.fillStyle = '#FFDAB9';
+        ctx.beginPath();
+        ctx.arc(sz.x, sz.y, 4, 0, Math.PI * 2);
+        ctx.fill();
+
+        ctx.strokeStyle = `rgba(255, 218, 185, ${0.4 + Math.sin(Date.now() * 0.003 + i) * 0.4})`;
+        ctx.beginPath();
+        ctx.arc(sz.x, sz.y, 14, 0, Math.PI * 2);
+        ctx.stroke();
+
+        if(zones[i].element) {
+          zones[i].element.style.transform = `translate(${sz.x + 18}px, ${sz.y - 12}px)`;
+        }
+      });
+
+      window.requestAnimationFrame(draw);
+    }
+
+    build();
+    draw();
+  </script>
+</body>
+</html>
+
