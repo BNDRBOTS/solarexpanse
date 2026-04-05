@@ -2,7 +2,8 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <!-- Added viewport-fit=cover for safe-area compliance on notched screens -->
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
   <title>Therapeutic Solar Expanse</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <style>
@@ -17,6 +18,8 @@
       display: block; 
       width: 100vw; 
       height: 100vh; 
+      user-select: none;
+      -webkit-user-select: none;
     }
     .zone-label {
       position: absolute;
@@ -33,6 +36,8 @@
       box-shadow: 0 4px 10px rgba(0,0,0,0.5);
       will-change: transform;
       text-transform: uppercase;
+      user-select: none;
+      -webkit-user-select: none;
     }
   </style>
 </head>
@@ -43,11 +48,12 @@
   <!-- Interface Annotations Container -->
   <div id="labels"></div>
   
-  <button id="sound-toggle" class="fixed top-6 right-6 z-40 bg-gray-900/80 text-[#FFDAB9] border border-[#FFDAB9]/50 rounded-full px-4 py-2 text-xs md:text-sm font-bold tracking-widest backdrop-blur-md shadow-[0_0_15px_rgba(255,218,185,0.1)] hover:bg-[#FFDAB9] hover:text-gray-900 transition-all duration-300 focus:outline-none focus:ring-2 focus:ring-[#FFDAB9] cursor-pointer" aria-label="Toggle Sound">SOUND: OFF</button>
+  <!-- Scaled touch dimensions: min-h-[44px] min-w-[44px], flex, select-none, touch-manipulation -->
+  <button id="sound-toggle" class="fixed top-6 right-6 z-40 flex items-center justify-center min-h-[44px] min-w-[44px] bg-gray-900/80 text-[#FFDAB9] border border-[#FFDAB9]/50 rounded-full px-5 py-2 md:px-4 md:py-2 text-xs md:text-sm font-bold tracking-widest backdrop-blur-md shadow-[0_0_15px_rgba(255,218,185,0.1)] hover:bg-[#FFDAB9] hover:text-gray-900 transition-all duration-300 focus:outline-none focus:ring-2 focus:ring-[#FFDAB9] cursor-pointer select-none touch-manipulation" aria-label="Toggle Sound">SOUND: OFF</button>
   
   <!-- Accessible Entry Interface (WCAG AAA Contrast: #111827 vs #FFDAB9) -->
   <div id="intro" class="fixed inset-0 z-50 flex items-center justify-center bg-black/90 backdrop-blur-md transition-opacity duration-1000">
-    <button id="listen-btn" class="px-10 py-5 bg-gray-900 text-[#FFDAB9] border-2 border-[#FFDAB9] rounded-full font-bold text-xl tracking-widest shadow-[0_0_40px_rgba(255,218,185,0.15)] hover:bg-[#FFDAB9] hover:text-gray-900 transition-all duration-300 cursor-pointer" aria-label="Listen and enter the experience">
+    <button id="listen-btn" class="px-10 py-5 min-h-[44px] flex items-center justify-center bg-gray-900 text-[#FFDAB9] border-2 border-[#FFDAB9] rounded-full font-bold text-xl tracking-widest shadow-[0_0_40px_rgba(255,218,185,0.15)] hover:bg-[#FFDAB9] hover:text-gray-900 transition-all duration-300 cursor-pointer select-none touch-manipulation" aria-label="Listen and enter the experience">
       LISTEN
     </button>
   </div>
@@ -80,7 +86,7 @@
       { x: 0.45, y: 0.80, label: "WATER", element: null }
     ];
 
-    // Audio context state
+    // Audio context variables
     let audioCtx, masterGain;
     let isPlaying = false;
     let lastPluck = 0;
@@ -119,7 +125,8 @@
       });
     }
 
-    window.addEventListener('resize', build);
+    // Use passive event listener for resize to prevent scrolling jank
+    window.addEventListener('resize', build, { passive: true });
 
     function startAudio() {
       if(isPlaying) return;
@@ -174,10 +181,16 @@
     }
 
     view.addEventListener('mousemove', e => handlePointer(e.clientX, e.clientY));
+    
     view.addEventListener('touchmove', e => {
       e.preventDefault();
       handlePointer(e.touches[0].clientX, e.touches[0].clientY);
     }, { passive: false });
+
+    // Add touchstart for immediate, accurate tap feedback on mobile screens
+    view.addEventListener('touchstart', e => {
+      handlePointer(e.touches[0].clientX, e.touches[0].clientY);
+    }, { passive: true });
 
     listenBtn.addEventListener('click', () => {
       startAudio();
@@ -312,4 +325,3 @@
   </script>
 </body>
 </html>
-
