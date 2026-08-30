@@ -1,327 +1,1756 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-palette="mint">
 <head>
-  <meta charset="UTF-8">
-  <!-- Added viewport-fit=cover for safe-area compliance on notched screens -->
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-  <title>Therapeutic Solar Expanse</title>
-  <script src="https://cdn.tailwindcss.com"></script>
-  <style>
-    body { 
-      margin: 0; 
-      overflow: hidden; 
-      background-color: #050505; 
-      touch-action: none; 
-      font-family: ui-sans-serif, system-ui, sans-serif; 
-    }
-    canvas { 
-      display: block; 
-      width: 100vw; 
-      height: 100vh; 
-      user-select: none;
-      -webkit-user-select: none;
-    }
-    .zone-label {
-      position: absolute;
-      top: 0; left: 0;
-      color: #FFDAB9;
-      font-size: 0.75rem;
-      font-weight: 600;
-      letter-spacing: 0.15em;
-      background: rgba(17, 24, 39, 0.85);
-      padding: 6px 12px;
-      border-left: 2px solid #FFDAB9;
-      pointer-events: none;
-      backdrop-filter: blur(4px);
-      box-shadow: 0 4px 10px rgba(0,0,0,0.5);
-      will-change: transform;
-      text-transform: uppercase;
-      user-select: none;
-      -webkit-user-select: none;
-    }
-  </style>
+<meta charset="UTF-8">
+<!-- Mobile-first: safe areas for notched devices, no zoom-jank on double tap -->
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="color-scheme" content="dark">
+<meta name="theme-color" content="#07100D">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="description" content="Solar Expanse — an interactive therapeutic field of light, motion and resonance. Move to drift, touch to ripple, breathe with the drone.">
+<title>Solar Expanse — Therapeutic Soundscape</title>
+
+<!--
+  ============================================================================
+  SOLAR EXPANSE  ·  single-file therapeutic soundscape
+  ----------------------------------------------------------------------------
+  Architecture (all inline, zero external requests, instant first paint):
+    1. Design system ....... CSS custom properties, palette theming, glass depth
+    2. Canvas engine ....... row-batched grid renderer (60 rects vs 800),
+                             cached atmosphere layer, typed-array energy field
+    3. Audio engine ........ Web Audio graph: drone + air + plucks + reverb
+                             + breath LFO + soft limiter, instant mute
+    4. Interaction ......... unified Pointer Events, zone-reactive timbre,
+                             idle auto-drift, keyboard control
+    5. UI .................. media dock (volume + instant mute), studio sheet,
+                             toasts, focus mode, adaptive quality
+  ============================================================================
+-->
+
+<style>
+/* ==========================================================================
+   1 · DESIGN SYSTEM
+   ========================================================================== */
+:root{
+  /* Surfaces */
+  --ink-0:#040A08;            /* deepest background */
+  --ink-1:#07100D;            /* base canvas */
+  --bone:#EDF3EF;             /* primary text */
+  --bone-dim:rgba(237,243,239,.62);
+  --bone-faint:rgba(237,243,239,.38);
+
+  /* Accent (overwritten per palette by JS) */
+  --accent:#8FD4B4;
+  --accent-ink:#06120E;
+  --a-04:rgba(143,212,180,.04);
+  --a-08:rgba(143,212,180,.08);
+  --a-14:rgba(143,212,180,.14);
+  --a-26:rgba(143,212,180,.26);
+  --a-45:rgba(143,212,180,.45);
+
+  --track:rgba(255,255,255,.13);
+  --hair:rgba(255,255,255,.10);
+  --hair-2:rgba(255,255,255,.06);
+
+  /* Geometry */
+  --r-sm:12px; --r-md:16px; --r-lg:22px; --r-xl:28px;
+  --safe-t:env(safe-area-inset-top,0px);
+  --safe-b:env(safe-area-inset-bottom,0px);
+  --safe-l:env(safe-area-inset-left,0px);
+  --safe-r:env(safe-area-inset-right,0px);
+  --dock-h:104px;
+  --tap:44px;                 /* minimum touch target */
+
+  /* Depth — layered shadows read as real elevation */
+  --sh-1:0 1px 0 rgba(255,255,255,.10) inset, 0 0 0 1px rgba(255,255,255,.05) inset;
+  --sh-2:0 10px 30px -12px rgba(0,0,0,.65), 0 2px 6px rgba(0,0,0,.30);
+  --sh-3:0 28px 70px -24px rgba(0,0,0,.80), 0 6px 16px rgba(0,0,0,.35);
+  --sh-glow:0 0 0 1px var(--a-26), 0 8px 30px -8px var(--a-26);
+
+  --ease:cubic-bezier(.22,.61,.36,1);
+  --ease-out:cubic-bezier(.16,1,.3,1);
+  --t-fast:.16s;
+  --t:.28s;
+  --t-slow:.6s;
+}
+
+*,*::before,*::after{box-sizing:border-box}
+html,body{height:100%}
+html{-webkit-text-size-adjust:100%}
+body{
+  margin:0;overflow:hidden;background:var(--ink-1);color:var(--bone);
+  font-family:ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
+  font-size:15px;line-height:1.5;
+  -webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale;
+  text-rendering:optimizeLegibility;
+  touch-action:none;overscroll-behavior:none;
+  -webkit-tap-highlight-color:transparent;
+}
+button{font:inherit;color:inherit;background:none;border:0;cursor:pointer}
+svg{display:block;flex:none}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:10px}
+::selection{background:var(--a-45)}
+
+/* ==========================================================================
+   2 · STAGE
+   ========================================================================== */
+#view{
+  position:fixed;inset:0;width:100%;height:100%;display:block;
+  user-select:none;-webkit-user-select:none;touch-action:none;
+  z-index:0;
+}
+/* Vignette + film grain: composited once, no per-frame cost */
+.veil{position:fixed;inset:0;z-index:1;pointer-events:none}
+.veil::before{
+  content:"";position:absolute;inset:0;
+  background:
+    radial-gradient(120% 90% at 50% 42%,transparent 38%,rgba(0,0,0,.34) 78%,rgba(0,0,0,.66) 100%);
+}
+.veil::after{
+  content:"";position:absolute;inset:-50%;
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='180' height='180' filter='url(%23n)' opacity='.42'/%3E%3C/svg%3E");
+  background-size:180px 180px;opacity:.045;
+  transition:opacity var(--t-slow) var(--ease);
+}
+body[data-grain="off"] .veil::after{opacity:0}
+
+/* ==========================================================================
+   3 · ZONE ANNOTATIONS (canvas-anchored map labels)
+   ========================================================================== */
+#zones{position:fixed;inset:0;z-index:2;pointer-events:none;overflow:hidden}
+.zone{
+  position:absolute;top:0;left:0;transform:translate3d(-999px,-999px,0);
+  display:flex;align-items:center;gap:9px;
+  padding:7px 12px 7px 10px;border-radius:999px;
+  background:linear-gradient(180deg,rgba(255,255,255,.10),rgba(255,255,255,.035));
+  border:1px solid var(--hair);
+  box-shadow:var(--sh-1),var(--sh-2);
+  backdrop-filter:blur(14px) saturate(140%);-webkit-backdrop-filter:blur(14px) saturate(140%);
+  white-space:nowrap;will-change:transform;
+  transition:border-color var(--t) var(--ease),box-shadow var(--t) var(--ease),background var(--t) var(--ease);
+}
+.zone i{
+  width:7px;height:7px;border-radius:50%;background:var(--accent);
+  box-shadow:0 0 0 3px var(--a-14),0 0 12px var(--a-45);
+  transition:transform var(--t) var(--ease-out);
+}
+.zone b{font-size:10.5px;font-weight:700;letter-spacing:.16em;text-transform:uppercase}
+.zone em{font-size:10.5px;font-style:normal;letter-spacing:.03em;color:var(--bone-faint);display:none}
+.zone[data-live="1"]{
+  border-color:var(--a-45);background:linear-gradient(180deg,var(--a-14),var(--a-04));
+  box-shadow:var(--sh-1),var(--sh-glow);
+}
+.zone[data-live="1"] i{transform:scale(1.5)}
+.zone[data-live="1"] em{color:var(--bone-dim)}
+@media (min-width:760px){
+  .zone em{display:inline}
+  .zone{gap:11px;padding:8px 14px 8px 12px}
+}
+
+/* ==========================================================================
+   4 · BREATHING GUIDE
+   ========================================================================== */
+#breath{
+  position:fixed;left:50%;top:calc(50% - 4vh);z-index:2;pointer-events:none;
+  width:220px;height:220px;margin:-110px 0 0 -110px;
+  display:grid;place-items:center;opacity:0;
+  transition:opacity var(--t-slow) var(--ease);
+}
+#breath[data-on="1"]{opacity:.62}
+#breath .ring{
+  position:absolute;inset:0;border-radius:50%;
+  border:1px solid var(--a-26);
+  box-shadow:0 0 60px -10px var(--a-14) inset;
+  will-change:transform;
+}
+#breath .ring::after{
+  content:"";position:absolute;inset:14%;border-radius:50%;
+  border:1px solid var(--a-14);
+}
+#breath .txt{
+  font-size:10px;font-weight:700;letter-spacing:.34em;text-transform:uppercase;
+  color:var(--bone-dim);padding-left:.34em;
+}
+
+/* ==========================================================================
+   5 · GLASS SURFACE
+   ========================================================================== */
+.glass{
+  background:linear-gradient(180deg,rgba(255,255,255,.085),rgba(255,255,255,.03));
+  border:1px solid var(--hair);
+  box-shadow:var(--sh-1),var(--sh-3);
+  backdrop-filter:blur(20px) saturate(150%);-webkit-backdrop-filter:blur(20px) saturate(150%);
+}
+
+/* ==========================================================================
+   6 · TOP BAR
+   ========================================================================== */
+.topbar{
+  position:fixed;top:0;left:0;right:0;z-index:20;
+  display:flex;align-items:center;justify-content:space-between;gap:12px;
+  padding:calc(10px + var(--safe-t)) calc(14px + var(--safe-r)) 0 calc(14px + var(--safe-l));
+  pointer-events:none;
+}
+.brand{display:flex;align-items:center;gap:11px;min-width:0;pointer-events:auto}
+.brand-mark{
+  width:36px;height:36px;border-radius:11px;display:grid;place-items:center;color:var(--accent);
+  background:linear-gradient(160deg,var(--a-14),rgba(255,255,255,.03));
+  border:1px solid var(--a-26);box-shadow:var(--sh-1),0 6px 18px -10px var(--a-45);
+  flex:none;
+}
+.brand-text{display:flex;flex-direction:column;line-height:1.15;min-width:0}
+.brand-text strong{font-size:14px;font-weight:650;letter-spacing:-.01em}
+.brand-text em{font-size:9.5px;font-style:normal;letter-spacing:.2em;text-transform:uppercase;color:var(--bone-faint)}
+@media (max-width:520px){.brand-text em{display:none}}
+
+.topbar-actions{display:flex;align-items:center;gap:8px;pointer-events:auto}
+
+/* ==========================================================================
+   7 · BUTTONS
+   ========================================================================== */
+.btn-icon{
+  position:relative;width:var(--tap);height:var(--tap);
+  display:grid;place-items:center;border-radius:14px;color:var(--bone-dim);
+  background:linear-gradient(180deg,rgba(255,255,255,.07),rgba(255,255,255,.02));
+  border:1px solid var(--hair);box-shadow:var(--sh-1);
+  transition:transform var(--t-fast) var(--ease),color var(--t-fast),background var(--t-fast),
+             border-color var(--t-fast),box-shadow var(--t-fast);
+  touch-action:manipulation;-webkit-user-select:none;user-select:none;
+}
+.btn-icon:hover{color:var(--bone);border-color:rgba(255,255,255,.2);transform:translateY(-1px)}
+.btn-icon:active{transform:scale(.94)}
+.btn-icon[aria-pressed="true"]{
+  color:var(--accent-ink);background:var(--accent);
+  background:linear-gradient(180deg,var(--accent),color-mix(in srgb,var(--accent) 78%,#000 22%));
+  border-color:transparent;box-shadow:0 6px 18px -8px var(--a-45),var(--sh-1);
+}
+.btn-icon .i-on{display:none}
+.btn-icon[aria-pressed="true"] .i-on{display:block}
+.btn-icon[aria-pressed="true"] .i-off{display:none}
+.btn-icon[data-live="1"]{color:var(--accent);border-color:var(--a-26)}
+
+.btn-ghost{
+  height:var(--tap);padding:0 20px;border-radius:999px;display:inline-flex;align-items:center;gap:9px;
+  font-size:12.5px;font-weight:600;letter-spacing:.02em;color:var(--bone);
+  background:rgba(255,255,255,.05);border:1px solid var(--hair);box-shadow:var(--sh-1);
+  transition:all var(--t) var(--ease);touch-action:manipulation;
+}
+.btn-ghost:hover{background:rgba(255,255,255,.1);border-color:rgba(255,255,255,.2);transform:translateY(-1px)}
+.btn-ghost:active{transform:scale(.97)}
+
+.btn-primary{
+  height:var(--tap);padding:0 24px;border-radius:999px;display:inline-flex;align-items:center;justify-content:center;gap:9px;
+  font-size:13px;font-weight:700;letter-spacing:.02em;color:var(--accent-ink);
+  background:var(--accent);
+  background:linear-gradient(180deg,var(--accent),color-mix(in srgb,var(--accent) 76%,#000 24%));
+  box-shadow:0 12px 30px -12px var(--a-45),var(--sh-1);
+  transition:transform var(--t) var(--ease-out),box-shadow var(--t) var(--ease),filter var(--t);
+  touch-action:manipulation;
+}
+.btn-primary:hover{transform:translateY(-2px);box-shadow:0 18px 40px -14px var(--a-45),var(--sh-1);filter:brightness(1.06)}
+.btn-primary:active{transform:scale(.97)}
+.btn-primary svg{color:var(--accent-ink)}
+
+/* ==========================================================================
+   8 · MEDIA DOCK — volume lives here, exactly where people expect it
+   ========================================================================== */
+.dock{
+  position:fixed;left:0;right:0;bottom:0;z-index:20;
+  display:flex;justify-content:center;
+  padding:0 calc(12px + var(--safe-r)) calc(12px + var(--safe-b)) calc(12px + var(--safe-l));
+  pointer-events:none;
+}
+.dock-inner{
+  pointer-events:auto;width:100%;max-width:1040px;
+  display:flex;align-items:center;gap:14px;
+  padding:10px 12px;border-radius:var(--r-lg);
+}
+.vol-cluster{display:flex;align-items:center;gap:10px;flex:1 1 auto;min-width:0}
+.vol-field{flex:1 1 auto;min-width:56px;display:flex;flex-direction:column;gap:3px}
+.vol-field label{
+  font-size:9.5px;font-weight:700;letter-spacing:.2em;text-transform:uppercase;color:var(--bone-faint);
+  display:flex;justify-content:space-between;
+}
+.vol-pct{
+  font-size:12px;font-variant-numeric:tabular-nums;color:var(--bone-dim);
+  min-width:38px;text-align:right;font-weight:600;
+  flex:none;
+}
+.divider{width:1px;align-self:stretch;background:var(--hair-2);flex:none}
+@media (max-width:899px){.divider{display:none}}
+
+/* Palette chips */
+.pal-row{display:flex;align-items:center;gap:6px;flex:none}
+@media (max-width:899px){
+  .dock-inner{flex-direction:column;gap:11px;padding:12px;border-radius:var(--r-xl);align-items:stretch}
+  .vol-cluster{gap:12px}
+  .dock-tools{display:flex;align-items:center;gap:6px}
+  .pal-scroll{
+    display:flex;gap:6px;overflow-x:auto;scroll-snap-type:x proximity;
+    padding-bottom:2px;margin:0 -2px;scrollbar-width:none;touch-action:pan-x;
+    overscroll-behavior-x:contain;
+  }
+  .pal-scroll::-webkit-scrollbar{display:none}
+}
+@media (min-width:900px){ .pal-scroll{display:flex;align-items:center;gap:6px} .dock-tools{display:flex;align-items:center;gap:6px} }
+
+.pal{
+  flex:none;scroll-snap-align:start;
+  display:inline-flex;align-items:center;gap:8px;height:36px;padding:0 12px 0 9px;
+  border-radius:999px;font-size:11.5px;font-weight:600;letter-spacing:.01em;color:var(--bone-dim);
+  background:rgba(255,255,255,.04);border:1px solid var(--hair-2);
+  transition:all var(--t) var(--ease);touch-action:manipulation;white-space:nowrap;
+}
+.pal:hover{color:var(--bone);background:rgba(255,255,255,.08)}
+.pal .sw{width:14px;height:14px;border-radius:50%;box-shadow:0 0 0 1px rgba(0,0,0,.35) inset}
+.pal[aria-pressed="true"]{
+  color:var(--bone);background:var(--a-08);border-color:var(--a-45);box-shadow:var(--sh-1)
+}
+.pal[aria-pressed="true"] .sw{box-shadow:0 0 0 3px var(--a-14)}
+@media (max-width:899px) and (max-width:420px){ .pal{padding:0 10px 0 8px;font-size:11px} }
+
+/* ==========================================================================
+   9 · RANGE SLIDERS
+   ========================================================================== */
+input[type=range]{
+  -webkit-appearance:none;appearance:none;width:100%;height:26px;
+  background:transparent;cursor:pointer;margin:0;touch-action:none;min-width:0;
+}
+input[type=range]::-webkit-slider-runnable-track{
+  height:6px;border-radius:999px;
+  background:linear-gradient(90deg,var(--accent) 0 var(--fill,50%),var(--track) var(--fill,50%) 100%);
+}
+input[type=range]::-webkit-slider-thumb{
+  -webkit-appearance:none;width:18px;height:18px;margin-top:-6px;border-radius:50%;
+  background:#fff;border:0;box-shadow:0 2px 6px rgba(0,0,0,.5),0 0 0 4px var(--a-14);
+  transition:box-shadow var(--t-fast) var(--ease),transform var(--t-fast) var(--ease);
+}
+input[type=range]:active::-webkit-slider-thumb{transform:scale(1.12);box-shadow:0 2px 6px rgba(0,0,0,.5),0 0 0 7px var(--a-14)}
+input[type=range]::-moz-range-track{height:6px;border-radius:999px;background:var(--track)}
+input[type=range]::-moz-range-progress{height:6px;border-radius:999px;background:var(--accent)}
+input[type=range]::-moz-range-thumb{
+  width:18px;height:18px;border:0;border-radius:50%;background:#fff;
+  box-shadow:0 2px 6px rgba(0,0,0,.5),0 0 0 4px var(--a-14);
+}
+input[type=range]:focus-visible::-webkit-slider-thumb{box-shadow:0 0 0 4px var(--a-45)}
+
+/* ==========================================================================
+   10 · STUDIO SHEET (settings)
+   ========================================================================== */
+.scrim{
+  position:fixed;inset:0;z-index:29;background:rgba(2,6,5,.55);
+  opacity:0;visibility:hidden;transition:opacity var(--t) var(--ease),visibility var(--t);
+}
+.scrim[data-open="1"]{opacity:1;visibility:visible}
+@media (min-width:900px){.scrim{display:none}}
+
+.sheet{
+  position:fixed;z-index:30;display:flex;flex-direction:column;
+  left:16px;right:16px;bottom:calc(var(--dock-h) + 24px);
+  width:min(384px,calc(100vw - 32px));max-height:min(70vh,600px);
+  border-radius:var(--r-xl);padding:4px 4px 4px;
+  opacity:0;visibility:hidden;transform:translateY(10px) scale(.985);
+  transform-origin:bottom center;
+  transition:opacity var(--t) var(--ease),transform var(--t) var(--ease),visibility var(--t);
+}
+.sheet[data-open="1"]{opacity:1;visibility:visible;transform:none}
+@media (max-width:899px){
+  .sheet{
+    left:0;right:0;bottom:0;width:100%;max-height:min(86vh,720px);
+    border-radius:var(--r-xl) var(--r-xl) 0 0;padding:6px 4px calc(10px + var(--safe-b));
+    transform:translateY(102%);transform-origin:bottom center;
+  }
+  .sheet[data-open="1"]{transform:none}
+}
+.sheet-grip{display:grid;place-items:center;padding:8px 0 2px;flex:none}
+.sheet-grip span{width:38px;height:4px;border-radius:99px;background:rgba(255,255,255,.18)}
+@media (min-width:900px){.sheet-grip{display:none}}
+.sheet-head{
+  display:flex;align-items:center;justify-content:space-between;
+  padding:10px 16px 8px;flex:none;
+}
+.sheet-head h2{margin:0;font-size:15px;font-weight:650;letter-spacing:-.01em}
+.sheet-head p{margin:2px 0 0;font-size:11px;color:var(--bone-faint)}
+.sheet-body{
+  overflow-y:auto;overscroll-behavior:contain;touch-action:pan-y;
+  -webkit-overflow-scrolling:touch;padding:0 16px 16px;scrollbar-width:thin;
+}
+.sheet-body::-webkit-scrollbar{width:8px}
+.sheet-body::-webkit-scrollbar-thumb{background:rgba(255,255,255,.14);border-radius:99px}
+section{padding:16px 0;border-top:1px solid var(--hair-2)}
+section:first-child{border-top:0;padding-top:6px}
+section h3{
+  margin:0 0 3px;font-size:10px;font-weight:700;letter-spacing:.2em;
+  text-transform:uppercase;color:var(--bone-faint);
+}
+section .hint{margin:0 0 12px;font-size:12px;color:var(--bone-dim)}
+
+.pal-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(148px,1fr));gap:8px}
+.pal-card{
+  display:flex;align-items:center;gap:10px;padding:9px 10px;border-radius:var(--r-md);
+  background:rgba(255,255,255,.035);border:1px solid var(--hair-2);text-align:left;
+  transition:all var(--t) var(--ease);touch-action:manipulation;
+}
+.pal-card:hover{background:rgba(255,255,255,.07);transform:translateY(-1px)}
+.pal-card[aria-pressed="true"]{background:var(--a-08);border-color:var(--a-45);box-shadow:var(--sh-1)}
+.pal-card .sw{width:26px;height:26px;border-radius:9px;flex:none;box-shadow:0 0 0 1px rgba(0,0,0,.4) inset,var(--sh-2)}
+.pal-card b{display:block;font-size:12px;font-weight:650}
+.pal-card em{display:block;font-size:10.5px;font-style:normal;color:var(--bone-faint)}
+
+.ctl{margin-bottom:12px}
+.ctl:last-child{margin-bottom:0}
+.ctl label{
+  display:flex;justify-content:space-between;align-items:baseline;
+  font-size:12px;color:var(--bone-dim);margin-bottom:2px;
+}
+.ctl label span{font-variant-numeric:tabular-nums;font-size:11px;color:var(--bone-faint)}
+
+.switch{
+  width:100%;display:flex;align-items:center;gap:12px;padding:9px 4px;
+  border-radius:var(--r-md);text-align:left;transition:background var(--t-fast);
+}
+.switch:hover{background:rgba(255,255,255,.04)}
+.sw-track{
+  flex:none;width:42px;height:24px;border-radius:99px;position:relative;
+  background:rgba(255,255,255,.12);border:1px solid var(--hair-2);
+  transition:background var(--t) var(--ease),border-color var(--t) var(--ease);
+}
+.sw-knob{
+  position:absolute;top:2px;left:2px;width:18px;height:18px;border-radius:50%;background:#fff;
+  box-shadow:0 2px 5px rgba(0,0,0,.45);
+  transition:transform var(--t) var(--ease-out);
+}
+.switch[aria-checked="true"] .sw-track{background:var(--accent);border-color:transparent}
+.switch[aria-checked="true"] .sw-knob{transform:translateX(18px)}
+.sw-label{min-width:0;flex:1}
+.sw-label b{display:block;font-size:12.5px;font-weight:600}
+.sw-label em{display:block;font-size:11px;font-style:normal;color:var(--bone-faint)}
+
+.keys{list-style:none;margin:0;padding:0;display:grid;gap:7px}
+.keys li{display:flex;align-items:center;justify-content:space-between;gap:12px;font-size:12px;color:var(--bone-dim)}
+.keys kbd{
+  font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:10.5px;
+  padding:3px 7px;border-radius:7px;color:var(--bone);
+  background:rgba(255,255,255,.07);border:1px solid var(--hair);box-shadow:var(--sh-1);
+}
+.sheet-foot{padding:12px 0 4px;font-size:11px;color:var(--bone-faint);border-top:1px solid var(--hair-2)}
+
+/* ==========================================================================
+   11 · TOAST
+   ========================================================================== */
+.toast{
+  position:fixed;left:50%;z-index:40;
+  bottom:calc(var(--dock-h) + 26px + var(--safe-b));
+  transform:translate(-50%,14px);
+  padding:9px 16px;border-radius:999px;font-size:12.5px;font-weight:600;letter-spacing:.01em;
+  background:linear-gradient(180deg,rgba(255,255,255,.12),rgba(255,255,255,.05));
+  border:1px solid var(--hair);box-shadow:var(--sh-1),var(--sh-2);
+  backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);
+  opacity:0;visibility:hidden;pointer-events:none;white-space:nowrap;max-width:90vw;
+  transition:opacity var(--t) var(--ease),transform var(--t) var(--ease),visibility var(--t);
+}
+.toast[data-show="1"]{opacity:1;visibility:visible;transform:translate(-50%,0)}
+
+/* ==========================================================================
+   12 · INTRO
+   ========================================================================== */
+.intro{
+  position:fixed;inset:0;z-index:60;display:grid;place-items:center;
+  padding:24px calc(20px + var(--safe-r)) calc(24px + var(--safe-b)) calc(20px + var(--safe-l));
+  background:radial-gradient(130% 100% at 50% 0%,rgba(10,24,20,.72),rgba(2,6,5,.9));
+  backdrop-filter:blur(18px) saturate(130%);-webkit-backdrop-filter:blur(18px) saturate(130%);
+  transition:opacity 1s var(--ease),visibility 1s;
+}
+.intro[data-hidden="1"]{opacity:0;visibility:hidden;pointer-events:none}
+.intro-card{
+  position:relative;width:100%;max-width:440px;padding:30px 26px 26px;border-radius:var(--r-xl);
+  text-align:center;overflow:hidden;
+}
+.intro-card::after{
+  content:"";position:absolute;inset:0;border-radius:inherit;pointer-events:none;
+  background:linear-gradient(180deg,rgba(255,255,255,.10),transparent 42%);
+}
+.intro-eyebrow{
+  font-size:9.5px;font-weight:700;letter-spacing:.3em;text-transform:uppercase;color:var(--accent);
+}
+.intro-card h1{
+  margin:12px 0 0;font-size:clamp(30px,8vw,42px);font-weight:680;letter-spacing:-.035em;line-height:1.02;
+}
+.intro-card h1 span{color:var(--accent)}
+.intro-card p{margin:12px auto 0;max-width:34ch;font-size:13.5px;color:var(--bone-dim)}
+.intro-mark{
+  width:56px;height:56px;margin:0 auto 4px;border-radius:18px;display:grid;place-items:center;color:var(--accent);
+  background:linear-gradient(160deg,var(--a-14),rgba(255,255,255,.03));
+  border:1px solid var(--a-26);box-shadow:var(--sh-1),0 16px 40px -18px var(--a-45);
+}
+.intro-actions{display:flex;flex-direction:column;gap:10px;margin-top:24px}
+.intro-actions .row{display:flex;gap:10px}
+.intro-actions .btn-primary{flex:1}
+.intro-actions .btn-ghost{flex:1;justify-content:center}
+.intro-note{
+  margin:18px 0 0;font-size:11px;color:var(--bone-faint);
+  display:flex;align-items:center;justify-content:center;gap:7px;flex-wrap:wrap;
+}
+@media (min-width:520px){.intro-actions{flex-direction:row}.intro-actions .row{flex:1}}
+
+/* ==========================================================================
+   13 · FOCUS MODE — UI recedes, scene takes over
+   ========================================================================== */
+.ui{transition:opacity var(--t-slow) var(--ease),transform var(--t-slow) var(--ease)}
+body[data-focus="1"] .ui{opacity:0;pointer-events:none;transform:translateY(8px)}
+body[data-focus="1"] .ui.peek{opacity:1;pointer-events:auto;transform:none}
+body[data-focus="1"] #zones,body[data-focus="1"] #breath{opacity:0}
+body[data-focus="1"] #breath[data-on="1"]{opacity:0}
+body[data-focus="1"] .veil::before{background:radial-gradient(130% 100% at 50% 45%,transparent 42%,rgba(0,0,0,.42) 100%)}
+
+/* ==========================================================================
+   14 · UTILITIES / A11Y
+   ========================================================================== */
+.sr-only{
+  position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;
+  clip:rect(0,0,0,0);white-space:nowrap;border:0;
+}
+noscript{position:fixed;inset:0;z-index:99;display:grid;place-items:center;background:var(--ink-1);color:var(--bone);text-align:center;padding:24px}
+@media (prefers-reduced-motion:reduce){
+  *{transition-duration:.01ms!important;animation-duration:.01ms!important}
+}
+</style>
 </head>
-<body class="w-screen h-screen">
-  
-  <canvas id="view"></canvas>
-  
-  <!-- Interface Annotations Container -->
-  <div id="labels"></div>
-  
-  <!-- Scaled touch dimensions: min-h-[44px] min-w-[44px], flex, select-none, touch-manipulation -->
-  <button id="sound-toggle" class="fixed top-6 right-6 z-40 flex items-center justify-center min-h-[44px] min-w-[44px] bg-gray-900/80 text-[#FFDAB9] border border-[#FFDAB9]/50 rounded-full px-5 py-2 md:px-4 md:py-2 text-xs md:text-sm font-bold tracking-widest backdrop-blur-md shadow-[0_0_15px_rgba(255,218,185,0.1)] hover:bg-[#FFDAB9] hover:text-gray-900 transition-all duration-300 focus:outline-none focus:ring-2 focus:ring-[#FFDAB9] cursor-pointer select-none touch-manipulation" aria-label="Toggle Sound">SOUND: OFF</button>
-  
-  <!-- Accessible Entry Interface (WCAG AAA Contrast: #111827 vs #FFDAB9) -->
-  <div id="intro" class="fixed inset-0 z-50 flex items-center justify-center bg-black/90 backdrop-blur-md transition-opacity duration-1000">
-    <button id="listen-btn" class="px-10 py-5 min-h-[44px] flex items-center justify-center bg-gray-900 text-[#FFDAB9] border-2 border-[#FFDAB9] rounded-full font-bold text-xl tracking-widest shadow-[0_0_40px_rgba(255,218,185,0.15)] hover:bg-[#FFDAB9] hover:text-gray-900 transition-all duration-300 cursor-pointer select-none touch-manipulation" aria-label="Listen and enter the experience">
-      LISTEN
+<body data-grain="on">
+
+<noscript><p>Solar Expanse needs JavaScript to render its interactive field of light.</p></noscript>
+
+<!-- STAGE -->
+<canvas id="view" aria-hidden="true"></canvas>
+<div class="veil" aria-hidden="true"></div>
+
+<!-- MAP ANNOTATIONS (built by JS) -->
+<div id="zones" aria-hidden="true"></div>
+
+<!-- BREATHING GUIDE -->
+<div id="breath" data-on="0" aria-hidden="true">
+  <span class="ring"></span>
+  <span class="txt">inhale</span>
+</div>
+
+<!-- TOP BAR -->
+<header class="topbar ui">
+  <div class="brand">
+    <span class="brand-mark" aria-hidden="true">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round">
+        <path d="M12 2.6v2.2M5.9 5.9l1.6 1.6M18.1 5.9l-1.6 1.6M3 12h2.2M18.8 12H21"/>
+        <path d="M7.6 12a4.4 4.4 0 0 1 8.8 0"/>
+        <path d="M2 16.4c2.2 0 2.8-1.7 5-1.7s2.8 1.7 5 1.7 2.8-1.7 5-1.7 2.8 1.7 5 1.7"/>
+      </svg>
+    </span>
+    <span class="brand-text"><strong>Solar Expanse</strong><em>Therapeutic Soundscape</em></span>
+  </div>
+  <div class="topbar-actions">
+    <button class="btn-icon" data-act="focus" aria-pressed="false" aria-label="Focus mode" title="Focus mode (H)">
+      <svg class="i-off" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M2.6 12S6.2 6 12 6s9.4 6 9.4 6-3.6 6-9.4 6-9.4-6-9.4-6z"/><circle cx="12" cy="12" r="2.6"/></svg>
+      <svg class="i-on" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M2.6 12S6.2 6 12 6s9.4 6 9.4 6-3.6 6-9.4 6-9.4-6-9.4-6z"/><circle cx="12" cy="12" r="2.6"/><path d="M4 4l16 16"/></svg>
+    </button>
+    <button class="btn-icon" data-act="sheet" aria-label="Open studio settings" title="Studio (S)">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M4 7h16M4 12h16M4 17h16"/><circle cx="9.5" cy="7" r="2.1" fill="currentColor" stroke="none"/><circle cx="15" cy="12" r="2.1" fill="currentColor" stroke="none"/><circle cx="11" cy="17" r="2.1" fill="currentColor" stroke="none"/></svg>
     </button>
   </div>
+</header>
 
-  <script>
-    const view = document.getElementById('view');
-    const ctx = view.getContext('2d');
-    const labelsDiv = document.getElementById('labels');
-    const listenBtn = document.getElementById('listen-btn');
-    const introScreen = document.getElementById('intro');
-    const soundToggle = document.getElementById('sound-toggle');
+<!-- MEDIA DOCK : volume + instant mute front and centre -->
+<footer class="dock ui" id="dock">
+  <div class="dock-inner glass">
+    <div class="vol-cluster">
+      <!-- Instant mute — fires on pointerdown, no click delay -->
+      <button id="muteBtn" class="btn-icon" data-act="mute" data-instant="1" data-live="1"
+              aria-pressed="false" aria-label="Mute sound" title="Mute / unmute (M)">
+        <svg class="i-off" width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M4 9.2h2.9L11 5.6v12.8l-4.1-3.6H4z" fill="currentColor" stroke="none"/>
+          <path d="M15.4 9.4a3.7 3.7 0 0 1 0 5.2"/><path d="M17.9 7a7 7 0 0 1 0 10"/>
+        </svg>
+        <svg class="i-on" width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M4 9.2h2.9L11 5.6v12.8l-4.1-3.6H4z" fill="currentColor" stroke="none"/>
+          <path d="M15.6 10l4 4M19.6 10l-4 4"/>
+        </svg>
+      </button>
+      <div class="vol-field">
+        <label for="vol">Volume</label>
+        <input id="vol" type="range" min="0" max="100" step="1" value="60"
+               aria-label="Master volume" data-bind="volume">
+      </div>
+      <output id="volPct" class="vol-pct" for="vol">60</output>
+    </div>
 
-    let w, h;
-    let panels = [];
-    const panelSize = 55;
-    const gap = 4;
-    let splashes = [];
-    
-    // Grid tracking
-    let cols, rows, gridW, gridH;
-    
-    // Continuous panning motion
-    let panX = 0, panY = 0;
-    let targetPanX = 0, targetPanY = 0;
+    <div class="divider" aria-hidden="true"></div>
 
-    // Interface points mapping
-    const zones = [
-      { x: 0.25, y: 0.35, label: "AIR", element: null },
-      { x: 0.75, y: 0.45, label: "CLOUDS", element: null },
-      { x: 0.45, y: 0.80, label: "WATER", element: null }
-    ];
+    <div class="pal-scroll" id="palRow" role="group" aria-label="Palette"></div>
 
-    // Audio context variables
-    let audioCtx, masterGain;
-    let isPlaying = false;
-    let lastPluck = 0;
-    
-    // Warm pentatonic frequencies
-    const scale = [196.00, 220.00, 261.63, 293.66, 329.63, 392.00, 440.00];
+    <div class="divider" aria-hidden="true"></div>
 
-    function build() {
-      w = view.width = window.innerWidth;
-      h = view.height = window.innerHeight;
-      
-      panels = [];
-      cols = Math.ceil(w / (panelSize + gap)) + 2;
-      rows = Math.ceil(h / (panelSize + gap)) + 2;
-      gridW = cols * (panelSize + gap);
-      gridH = rows * (panelSize + gap);
-      
-      for(let r = 0; r < rows; r++) {
-        for(let c = 0; c < cols; c++) {
-          panels.push({
-            cx: c * (panelSize + gap),
-            cy: r * (panelSize + gap),
-            energy: 0
-          });
-        }
+    <div class="dock-tools">
+      <button class="btn-icon" data-act="breath" aria-pressed="false" aria-label="Breathing guide" title="Breathing guide (B)">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M3 8.5h8.6a2.4 2.4 0 1 0-2.4-2.4"/><path d="M3 12.5h12.8a2.9 2.9 0 1 1-2.9 2.9"/><path d="M3 16.5h5.6"/></svg>
+      </button>
+      <button class="btn-icon" data-act="drift" aria-pressed="false" aria-label="Auto drift" title="Auto drift (D)">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M3 8.4c2.1 0 2.6-2 4.7-2s2.6 2 4.7 2 2.6-2 4.7-2 2.6 2 4.7 2"/><path d="M3 15.6c2.1 0 2.6-2 4.7-2s2.6 2 4.7 2 2.6-2 4.7-2 2.6 2 4.7 2"/></svg>
+      </button>
+      <button class="btn-icon" data-act="fs" aria-pressed="false" aria-label="Fullscreen" title="Fullscreen (F)" hidden>
+        <svg class="i-off" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9.4V4h5.4M20 14.6V20h-5.4M14.6 4H20v5.4M9.4 20H4v-5.4"/></svg>
+        <svg class="i-on" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M9.4 4v5.4H4M14.6 20v-5.4H20M20 9.4h-5.4V4M4 14.6h5.4V20"/></svg>
+      </button>
+    </div>
+  </div>
+</footer>
+
+<!-- SCRIM + STUDIO SHEET -->
+<div id="scrim" class="scrim" data-open="0"></div>
+
+<aside id="sheet" class="sheet glass" data-open="0" role="dialog" aria-modal="false" aria-labelledby="sheetTitle">
+  <div class="sheet-grip" aria-hidden="true"><span></span></div>
+  <header class="sheet-head">
+    <div>
+      <h2 id="sheetTitle">Studio</h2>
+      <p>Everything stays on this device.</p>
+    </div>
+    <button class="btn-icon" data-act="sheet" aria-label="Close studio" style="width:36px;height:36px">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>
+    </button>
+  </header>
+  <div class="sheet-body">
+    <section>
+      <h3>Palette</h3>
+      <p class="hint">Low-arousal colour systems chosen for calm.</p>
+      <div class="pal-grid" id="palGrid"></div>
+    </section>
+
+    <section>
+      <h3>Mix</h3>
+      <div class="ctl">
+        <label for="sVol">Master volume <span data-out="volume"></span></label>
+        <input id="sVol" type="range" min="0" max="100" step="1" data-bind="volume">
+      </div>
+      <div class="ctl">
+        <label for="sDrone">Drone bed <span data-out="drone"></span></label>
+        <input id="sDrone" type="range" min="0" max="100" step="1" data-bind="drone">
+      </div>
+      <div class="ctl">
+        <label for="sAir">Air texture <span data-out="air"></span></label>
+        <input id="sAir" type="range" min="0" max="100" step="1" data-bind="air">
+      </div>
+    </section>
+
+    <section>
+      <h3>Motion</h3>
+      <div class="ctl">
+        <label for="sMotion">Parallax depth <span data-out="motion"></span></label>
+        <input id="sMotion" type="range" min="0" max="150" step="1" data-bind="motion">
+      </div>
+      <button class="switch" role="switch" aria-checked="false" data-act="toggle" data-key="drift">
+        <span class="sw-track"><span class="sw-knob"></span></span>
+        <span class="sw-label"><b>Auto drift</b><em>Idle motion and ambient notes</em></span>
+      </button>
+      <button class="switch" role="switch" aria-checked="false" data-act="toggle" data-key="breath">
+        <span class="sw-track"><span class="sw-knob"></span></span>
+        <span class="sw-label"><b>Breathing guide</b><em>10-second coherence cycle</em></span>
+      </button>
+      <button class="switch" role="switch" aria-checked="false" data-act="toggle" data-key="grain">
+        <span class="sw-track"><span class="sw-knob"></span></span>
+        <span class="sw-label"><b>Film grain</b><em>Softens digital edges</em></span>
+      </button>
+      <button class="switch" role="switch" aria-checked="false" data-act="toggle" data-key="reduce">
+        <span class="sw-track"><span class="sw-knob"></span></span>
+        <span class="sw-label"><b>Reduce motion</b><em>Comfort-first rendering</em></span>
+      </button>
+    </section>
+
+    <section>
+      <h3>Shortcuts</h3>
+      <ul class="keys">
+        <li><span>Mute / unmute</span><kbd>M</kbd></li>
+        <li><span>Volume</span><kbd>↑ ↓</kbd></li>
+        <li><span>Cycle palette</span><kbd>P</kbd></li>
+        <li><span>Focus mode</span><kbd>H</kbd></li>
+        <li><span>Breathing guide</span><kbd>B</kbd></li>
+        <li><span>Auto drift</span><kbd>D</kbd></li>
+        <li><span>Fullscreen</span><kbd>F</kbd></li>
+        <li><span>Studio</span><kbd>S</kbd></li>
+        <li><span>Ripple burst</span><kbd>Space</kbd></li>
+      </ul>
+      <div class="sheet-foot">Solar Expanse · generative audio, no tracking, no uploads.</div>
+    </section>
+  </div>
+</aside>
+
+<!-- TOAST -->
+<div id="toast" class="toast" role="status" aria-live="polite"></div>
+
+<!-- INTRO -->
+<div id="intro" class="intro" data-hidden="0">
+  <div class="intro-card glass">
+    <div class="intro-mark" aria-hidden="true">
+      <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round">
+        <path d="M12 2.6v2.2M5.9 5.9l1.6 1.6M18.1 5.9l-1.6 1.6M3 12h2.2M18.8 12H21"/>
+        <path d="M7.6 12a4.4 4.4 0 0 1 8.8 0"/>
+        <path d="M2 16.4c2.2 0 2.8-1.7 5-1.7s2.8 1.7 5 1.7 2.8-1.7 5-1.7 2.8 1.7 5 1.7"/>
+      </svg>
+    </div>
+    <p class="intro-eyebrow">Therapeutic Soundscape</p>
+    <h1>Solar <span>Expanse</span></h1>
+    <p>An interactive field of light and resonance. Move to drift, touch to ripple, and let the drone hold your breath.</p>
+    <div class="intro-actions">
+      <button id="enterSound" class="btn-primary">
+        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9.2h2.9L11 5.6v12.8l-4.1-3.6H4z" fill="currentColor" stroke="none"/><path d="M15.4 9.4a3.7 3.7 0 0 1 0 5.2"/><path d="M17.9 7a7 7 0 0 1 0 10"/></svg>
+        Enter with sound
+      </button>
+      <button id="enterSilent" class="btn-ghost">Enter in silence</button>
+    </div>
+    <p class="intro-note">
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M12 3l8 15H4z"/><path d="M12 9.5v4"/><circle cx="12" cy="16.6" r=".7" fill="currentColor" stroke="none"/></svg>
+      Headphones recommended · nothing is recorded
+    </p>
+  </div>
+</div>
+
+<script>
+(() => {
+'use strict';
+
+/* ==========================================================================
+   0 · UTILITIES
+   ========================================================================== */
+const clamp = (v, a, b) => v < a ? a : v > b ? b : v;
+const lerp  = (a, b, t) => a + (b - a) * t;
+const mod   = (n, m) => ((n % m) + m) % m;
+const easeInOut = t => t < .5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
+const rgba  = (c, a) => `rgba(${c[0] | 0},${c[1] | 0},${c[2] | 0},${a})`;
+/** Frame-rate independent exponential smoothing factor. */
+const smooth = (rate, dt) => 1 - Math.pow(1 - rate, dt * 60);
+const $ = (s, r = document) => r.querySelector(s);
+const $$ = (s, r = document) => Array.from(r.querySelectorAll(s));
+
+/* ==========================================================================
+   1 · PALETTES — low-arousal, proven-soothing colour systems
+   panelTop → panelDeep drives the reflective grid; accent drives all FX.
+   ========================================================================== */
+const PALETTES = [
+  { id:'mint',  name:'Mint & Bone', note:'Cool focus',
+    css:'#8FD4B4', ink:'#06120E', accent:[143,212,180], hot:[224,255,242],
+    panelTop:[198,226,215], panelDeep:[9,26,22], dim:.42,
+    sunA:'rgba(168,232,205,.34)', sunB:'rgba(120,200,172,.12)',
+    horizon:'rgba(126,206,176,.14)', bg0:'#08130F', bg1:'#030806' },
+
+  { id:'peach', name:'Peach Dawn', note:'Warm settle',
+    css:'#FFC79B', ink:'#1A0F06', accent:[255,199,155], hot:[255,238,220],
+    panelTop:[255,218,185], panelDeep:[22,32,48], dim:.40,
+    sunA:'rgba(255,206,160,.32)', sunB:'rgba(232,150,96,.10)',
+    horizon:'rgba(255,196,150,.12)', bg0:'#0C1018', bg1:'#04060A' },
+
+  { id:'slate', name:'Slate Sea', note:'Deep calm',
+    css:'#9EC6D8', ink:'#06121A', accent:[158,198,216], hot:[226,244,252],
+    panelTop:[176,208,224], panelDeep:[10,26,38], dim:.42,
+    sunA:'rgba(178,220,240,.30)', sunB:'rgba(110,170,205,.10)',
+    horizon:'rgba(140,196,224,.13)', bg0:'#08121A', bg1:'#03070B' },
+
+  { id:'lilac', name:'Lilac Dusk', note:'Soft release',
+    css:'#C0B0E0', ink:'#120A1E', accent:[192,176,224], hot:[240,236,255],
+    panelTop:[206,196,228], panelDeep:[20,16,38], dim:.42,
+    sunA:'rgba(206,190,240,.30)', sunB:'rgba(150,130,205,.10)',
+    horizon:'rgba(180,164,222,.13)', bg0:'#0D0A18', bg1:'#040309' },
+
+  { id:'sand',  name:'Warm Sand', note:'Grounded rest',
+    css:'#E4C49A', ink:'#1B1207', accent:[228,196,154], hot:[252,240,222],
+    panelTop:[236,216,186], panelDeep:[30,24,18], dim:.42,
+    sunA:'rgba(240,214,170,.30)', sunB:'rgba(196,156,110,.10)',
+    horizon:'rgba(224,196,152,.12)', bg0:'#12100B', bg1:'#060504' }
+];
+const PAL = Object.create(null);
+PALETTES.forEach(p => PAL[p.id] = p);
+const pal = () => PAL[state.paletteId] || PALETTES[0];
+
+/* ==========================================================================
+   2 · STATE  (persisted, single source of truth)
+   ========================================================================== */
+const KEY = 'solar-expanse.v3';
+const DEFAULTS = {
+  paletteId:'mint', volume:60, drone:52, air:34, motion:100,
+  breath:true, drift:true, grain:true, reduce:false
+};
+const mqReduce = matchMedia('(prefers-reduced-motion: reduce)');
+const state = Object.assign({}, DEFAULTS, loadPrefs());
+if (mqReduce.matches && !('reduce' in storedKeys())) state.reduce = true;
+
+function storedKeys(){ try { return Object.keys(JSON.parse(localStorage.getItem(KEY)) || {}); }
+                       catch (e) { return []; } }
+function loadPrefs(){ try { return JSON.parse(localStorage.getItem(KEY)) || {}; } catch (e) { return {}; } }
+let saveTimer = 0;
+function persist(){
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(() => {
+    try { localStorage.setItem(KEY, JSON.stringify({
+      paletteId:state.paletteId, volume:state.volume, drone:state.drone,
+      air:state.air, motion:state.motion, breath:state.breath,
+      drift:state.drift, grain:state.grain, reduce:state.reduce
+    })); } catch (e) {}
+  }, 350);
+}
+
+/* Runtime-only flags */
+const rt = { entered:false, muted:false, focus:false, sheet:false, lastInput:0, lastPluck:-9 };
+
+/* ==========================================================================
+   3 · DOM REFERENCES (single lookup pass)
+   ========================================================================== */
+const view   = $('#view');
+const ctx    = view.getContext('2d', { alpha:false, desynchronized:true });
+const zonesEl= $('#zones');
+const breathEl = $('#breath');
+const breathRing = $('#breath .ring');
+const breathTxt  = $('#breath .txt');
+const dockEl = $('#dock');
+const topbarEl = $('.topbar');
+const toastEl= $('#toast');
+const sheetEl= $('#sheet');
+const scrimEl= $('#scrim');
+const introEl= $('#intro');
+const volPct = $('#volPct');
+
+/* ==========================================================================
+   4 · MAP ZONES — reactive audio regions of the expanse
+   mult: register multiplier · wave: oscillator timbre
+   ========================================================================== */
+const ZONES = [
+  { fx:.24, fy:.30, mx:.28, my:.24, label:'Air',    sub:'high register', mult:2,   wave:'triangle' },
+  { fx:.76, fy:.44, mx:.72, my:.40, label:'Clouds', sub:'wide reverb',   mult:1,   wave:'sine'     },
+  { fx:.46, fy:.80, mx:.50, my:.68, label:'Water',  sub:'low register',  mult:.5,  wave:'sine'     }
+];
+/* keep the pristine landscape anchors (measureZones mutates fx/fy per orientation) */
+ZONES.forEach(z => { z.baseFx = z.fx; z.baseFy = z.fy; });
+ZONES.forEach(z => {
+  const el = document.createElement('div');
+  el.className = 'zone';
+  el.innerHTML = '<i></i><b>' + z.label + '</b><em>' + z.sub + '</em>';
+  zonesEl.appendChild(el);
+  z.el = el;
+});
+
+/* Ambient pentatonic set (G major flavour) */
+const SCALE = [196.00, 220.00, 261.63, 293.66, 329.63, 392.00, 440.00];
+const BREATH_PERIOD = 10;              // seconds — 4.2 in / 5.8 out
+
+/* ==========================================================================
+   5 · CANVAS ENGINE
+   Row-batched renderer: the original drew ~800 rects per frame; we draw one
+   rect per row + one per column-gap, then only the energised cells on top.
+   Geometry is identical (55px panels, 4px gutters on desktop).
+   ========================================================================== */
+let W = 0, H = 0, DPR = 1, bgGrad = null;
+let SIZE = 55, GAP = 4, SPACING = 59;
+let colsE = 0, rowsE = 0, energy = null;
+let visKx0 = 0, visKx1 = 0, visKr0 = 0, visKr1 = 0;
+let uiTop = 80, uiBottom = 1e9;
+
+/* Quality ladder — steps down automatically if the frame budget slips */
+const quality = { dprMax:2, dust:true, glow:true, level:2 };
+if ((navigator.hardwareConcurrency || 8) <= 4) { quality.dprMax = 1.5; quality.level = 1; }
+if (state.reduce) { quality.dprMax = 1.5; quality.dust = false; }
+
+/* Motion */
+let panX = 0, panY = 0, targetPanX = 0, targetPanY = 0;
+const pointer = { x:0, y:0, tx:0, ty:0, active:false, sx:0, sy:0, moved:1e9 };
+
+/* FX pools */
+const ripples = [];
+const RIPPLE_MAX = 26;
+const dust = [];
+
+/* Cached atmosphere layer (sun + horizon haze) — rebuilt on resize/palette */
+const glowCv = document.createElement('canvas');
+const glowCx = glowCv.getContext('2d');
+
+function computeGrid(){
+  const small = W < 620;
+  SIZE = small ? 42 : 55;
+  GAP  = small ? 3 : 4;
+  SPACING = SIZE + GAP;
+  colsE = Math.ceil(W / SPACING) + 2;
+  rowsE = Math.ceil(H / SPACING) + 2;
+  energy = new Float32Array(colsE * rowsE);
+  ripples.length = 0;
+  seedDust();
+  measureZones();
+}
+
+function seedDust(){
+  dust.length = 0;
+  if (!quality.dust) return;
+  const n = W < 720 ? 26 : 58;
+  for (let i = 0; i < n; i++) dust.push({
+    x:Math.random() * W, y:Math.random() * H,
+    r:Math.random() * 1.7 + .7, v:Math.random() * 13 + 5,
+    a:Math.random() * .5 + .18, ph:Math.random() * Math.PI * 2
+  });
+}
+
+function buildGlow(){
+  const p = pal();
+  glowCv.width = Math.max(2, W); glowCv.height = Math.max(2, H);
+  glowCx.clearRect(0, 0, W, H);
+  /* Solar bloom */
+  const sx = W * .5, sy = H * .04, R = Math.max(W, H) * .95;
+  let g = glowCx.createRadialGradient(sx, sy, 0, sx, sy, R);
+  g.addColorStop(0, p.sunA); g.addColorStop(.34, p.sunB); g.addColorStop(1, 'rgba(0,0,0,0)');
+  glowCx.fillStyle = g; glowCx.fillRect(0, 0, W, H);
+  /* Horizon haze */
+  g = glowCx.createLinearGradient(0, H * .26, 0, H * .68);
+  g.addColorStop(0, 'rgba(0,0,0,0)'); g.addColorStop(.5, p.horizon); g.addColorStop(1, 'rgba(0,0,0,0)');
+  glowCx.fillStyle = g; glowCx.fillRect(0, 0, W, H);
+  /* Background gradient (user-space, reused every frame) */
+  bgGrad = ctx.createLinearGradient(0, 0, 0, H);
+  bgGrad.addColorStop(0, p.bg0); bgGrad.addColorStop(1, p.bg1);
+}
+
+/** Zone anchors: portrait layouts pull the map inward so labels never clip. */
+function measureZones(){
+  const portrait = H > W;
+  ZONES.forEach(z => {
+    z.fx = portrait ? z.mx : z.baseFx;
+    z.fy = portrait ? z.my : z.baseFy;
+    if (z.sx === undefined) { z.sx = z.fx * W; z.sy = z.fy * H; }
+  });
+  /* real chrome edges, measured once per resize (never trust env() math) */
+  uiTop = Math.max(72, Math.round(topbarEl.getBoundingClientRect().bottom) + 12);
+  uiBottom = H - (dockEl.offsetHeight || 96) - 16;
+  ZONES.forEach(z => { z.ew = z.el.offsetWidth; z.eh = z.el.offsetHeight; });
+}
+
+let resizePending = false;
+function resize(){
+  W = Math.max(1, window.innerWidth);
+  H = Math.max(1, window.innerHeight);
+  DPR = clamp(window.devicePixelRatio || 1, 1, quality.dprMax);
+  view.width = Math.round(W * DPR);
+  view.height = Math.round(H * DPR);
+  view.style.width = W + 'px';
+  view.style.height = H + 'px';
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+  computeGrid();
+  buildGlow();
+  document.documentElement.style.setProperty('--dock-h', (dockEl.offsetHeight || 96) + 'px');
+  resizePending = false;
+}
+function queueResize(){ if (!resizePending) { resizePending = true; requestAnimationFrame(resize); } }
+addEventListener('resize', queueResize, { passive:true });
+addEventListener('orientationchange', () => setTimeout(queueResize, 120), { passive:true });
+if (window.visualViewport) visualViewport.addEventListener('resize', queueResize, { passive:true });
+
+/* ---------- Ripples ---------- */
+function spawn(x, y, power){
+  if (ripples.length >= RIPPLE_MAX) ripples.shift();
+  ripples.push({ x, y, r:0, life:1, p:power || 1 });
+}
+function updateRipples(dt){
+  const step = 60 * dt;                    /* time-normalised frame step */
+  for (let i = ripples.length - 1; i >= 0; i--) {
+    const s = ripples[i];
+    s.r += 14 * step * s.p;
+    s.life *= Math.pow(.92, step);
+    if (s.life < .02) { ripples.splice(i, 1); continue; }
+    inject(s);
+  }
+}
+/** Energise only the cells inside the ripple's annulus (band-limited search). */
+function inject(s){
+  const band = SIZE * 1.5;
+  const reach = s.r + band + SIZE;
+  const c0 = clamp(Math.floor((s.x - reach - SIZE - mod(panX, SPACING)) / SPACING), visKx0, visKx1);
+  const c1 = clamp(Math.ceil((s.x + reach - mod(panX, SPACING)) / SPACING), visKx0, visKx1);
+  const r0 = clamp(Math.floor((s.y - reach - SIZE - mod(panY, SPACING)) / SPACING), visKr0, visKr1);
+  const r1 = clamp(Math.ceil((s.y + reach - mod(panY, SPACING)) / SPACING), visKr0, visKr1);
+  const ox = mod(panX, SPACING), oy = mod(panY, SPACING);
+  const colShift = Math.floor(panX / SPACING), rowShift = Math.floor(panY / SPACING);
+  const add = .45 * s.life * s.p;
+  const half = SIZE * .5;
+  for (let kr = r0; kr <= r1; kr++) {
+    const cy = kr * SPACING + oy + half;
+    const dy = cy - s.y, dy2 = dy * dy;
+    const grow = mod(kr - rowShift, rowsE) * colsE;
+    for (let kc = c0; kc <= c1; kc++) {
+      const dx = kc * SPACING + ox + half - s.x;
+      if (dx > reach || dx < -reach) continue;
+      const d = Math.sqrt(dx * dx + dy2);
+      if (Math.abs(d - s.r) < band) energy[grow + mod(kc - colShift, colsE)] += add;
+    }
+  }
+}
+
+/* ---------- Main render ---------- */
+function render(t, dt){
+  const p = pal();
+
+  /* Visible cell window (shared with inject()) */
+  const ox = mod(panX, SPACING), oy = mod(panY, SPACING);
+  const colShift = Math.floor(panX / SPACING), rowShift = Math.floor(panY / SPACING);
+  visKx0 = -1; visKx1 = Math.ceil((W - ox) / SPACING);
+  visKr0 = -1; visKr1 = Math.floor((H - oy) / SPACING) + 1;
+
+  /* 1 · base wash */
+  ctx.globalCompositeOperation = 'source-over';
+  ctx.fillStyle = bgGrad;
+  ctx.fillRect(0, 0, W, H);
+
+  /* 2 · the reflective panel field — batched by row */
+  ctx.globalCompositeOperation = 'source-over';
+  const pt = p.panelTop, pd = p.panelDeep;
+  for (let kr = visKr0; kr <= visKr1; kr++) {
+    const y = kr * SPACING + oy;
+    if (y > H || y + SIZE < 0) continue;
+    const ratio = clamp((y + SIZE * .5) / H, 0, 1);
+    const br = (pt[0] + (pd[0] - pt[0]) * ratio) * p.dim;
+    const bg = (pt[1] + (pd[1] - pt[1]) * ratio) * p.dim;
+    const bb = (pt[2] + (pd[2] - pt[2]) * ratio) * p.dim;
+    ctx.fillStyle = 'rgb(' + (br | 0) + ',' + (bg | 0) + ',' + (bb | 0) + ')';
+    ctx.fillRect(0, y, W, SIZE);
+
+    /* only energised cells get their own rect */
+    const grow = mod(kr - rowShift, rowsE) * colsE;
+    const ac = p.accent, hot = p.hot;
+    for (let kc = visKx0; kc <= visKx1; kc++) {
+      const e = energy[grow + mod(kc - colShift, colsE)];
+      if (e > .015) {
+        const ee = e > 1 ? 1 : e;
+        const x = kc * SPACING + ox;
+        const rr = br + ac[0] * ee * .85 + hot[0] * ee * ee * .28;
+        const gg = bg + ac[1] * ee * .85 + hot[1] * ee * ee * .28;
+        const bl = bb + ac[2] * ee * .85 + hot[2] * ee * ee * .28;
+        ctx.fillStyle = 'rgb(' + (rr > 255 ? 255 : rr | 0) + ',' + (gg > 255 ? 255 : gg | 0) + ',' + (bl > 255 ? 255 : bl | 0) + ')';
+        ctx.fillRect(x, y, SIZE, SIZE);
       }
-
-      // Rebuild map annotations
-      labelsDiv.innerHTML = '';
-      zones.forEach(z => {
-        const el = document.createElement('div');
-        el.className = 'zone-label';
-        el.innerText = z.label;
-        labelsDiv.appendChild(el);
-        z.element = el;
-      });
     }
+  }
 
-    // Use passive event listener for resize to prevent scrolling jank
-    window.addEventListener('resize', build, { passive: true });
+  /* 3 · restore gutters straight from the background gradient (one fillStyle) */
+  ctx.fillStyle = bgGrad;
+  for (let kc = visKx0; kc <= visKx1; kc++) {
+    ctx.fillRect(kc * SPACING + ox + SIZE, -GAP, GAP, H + GAP * 2);
+  }
 
-    function startAudio() {
-      if(isPlaying) return;
-      audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-      masterGain = audioCtx.createGain();
-      masterGain.connect(audioCtx.destination);
-      masterGain.gain.value = 0.6;
+  /* 4 · solar bloom + horizon haze, composited over the field (additive).
+     Rendered once into a cached layer, so this is a single drawImage. */
+  if (quality.glow) {
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.globalAlpha = .82;
+    const gs = 1.06 + Math.sin(t * .05) * .012;   /* slow, barely-there swell */
+    ctx.drawImage(glowCv, -W * .03, -H * .03, W * gs, H * gs);
+    ctx.globalAlpha = 1;
+  }
 
-      // Deep therapeutic drone
-      const drone = audioCtx.createOscillator();
-      drone.type = 'sine';
-      drone.frequency.value = 73.42;
-      const dGain = audioCtx.createGain();
-      dGain.gain.value = 0.25;
-      drone.connect(dGain);
-      dGain.connect(masterGain);
-      drone.start();
-
-      isPlaying = true;
+  /* 5 · ripple light */
+  if (quality.glow && ripples.length) {
+    ctx.globalCompositeOperation = 'lighter';
+    const cap = Math.min(ripples.length, 6), lim = Math.max(W, H) * .72;
+    for (let i = 0; i < cap; i++) {
+      const s = ripples[i];
+      if (s.life < .12 || s.r > lim) continue;
+      const pad = SIZE * 1.9;
+      const g = ctx.createRadialGradient(s.x, s.y, Math.max(0, s.r - pad), s.x, s.y, s.r + pad);
+      g.addColorStop(0, 'rgba(0,0,0,0)');
+      g.addColorStop(.5, rgba(p.accent, s.life * .3 * s.p));
+      g.addColorStop(1, 'rgba(0,0,0,0)');
+      ctx.fillStyle = g;
+      ctx.fillRect(s.x - s.r - pad, s.y - s.r - pad, (s.r + pad) * 2, (s.r + pad) * 2);
     }
+  }
 
-    function triggerEffect(x, y) {
-      splashes.push({ x, y, radius: 0, life: 1 });
-      
-      if(!isPlaying || !audioCtx) return;
-      
-      const now = Date.now();
-      if(now - lastPluck > 120) {
-        const osc = audioCtx.createOscillator();
-        const gain = audioCtx.createGain();
-        
-        osc.type = 'triangle';
-        osc.frequency.value = scale[Math.floor(Math.random() * scale.length)];
-        
-        osc.connect(gain);
-        gain.connect(masterGain);
-        
-        osc.start();
-        gain.gain.setValueAtTime(0, audioCtx.currentTime);
-        gain.gain.linearRampToValueAtTime(0.12, audioCtx.currentTime + 0.05);
-        gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 1.5);
-        osc.stop(audioCtx.currentTime + 1.6);
-        
-        lastPluck = now;
-      }
+  /* 6 · drifting light motes */
+  if (dust.length) {
+    ctx.globalCompositeOperation = 'lighter';
+    for (let i = 0; i < dust.length; i++) {
+      const d = dust[i];
+      d.y -= d.v * dt;
+      d.x += Math.sin(t * .25 + d.ph) * 6 * dt;
+      if (d.y < -6) { d.y = H + 6; d.x = Math.random() * W; }
+      if (d.x > W + 6) d.x = -6; else if (d.x < -6) d.x = W + 6;
+      ctx.fillStyle = rgba(p.hot, d.a * .5);
+      ctx.fillRect(d.x, d.y, d.r, d.r);
     }
+  }
 
-    function handlePointer(x, y) {
-      targetPanX = (x / w - 0.5) * 120;
-      targetPanY = (y / h - 0.5) * 120;
-      triggerEffect(x, y);
+  /* 7 · pointer halo */
+  if (pointer.active && quality.glow) {
+    ctx.globalCompositeOperation = 'lighter';
+    const R = 96;
+    const g = ctx.createRadialGradient(pointer.x, pointer.y, 0, pointer.x, pointer.y, R);
+    g.addColorStop(0, rgba(p.accent, .13));
+    g.addColorStop(.55, rgba(p.accent, .04));
+    g.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = g;
+    ctx.fillRect(pointer.x - R, pointer.y - R, R * 2, R * 2);
+  }
+
+  /* 8 · zone map overlay */
+  ctx.globalCompositeOperation = 'source-over';
+  drawZones(t, p);
+}
+
+function drawZones(t, p){
+  /* anchors carry 40% of the parallax, as in the original */
+  ZONES.forEach(z => {
+    z.sx = clamp(z.fx * W + panX * .4, 40, W - 40);
+    z.sy = clamp(z.fy * H + panY * .4, uiTop, Math.max(uiTop + 1, uiBottom));
+  });
+
+  /* flowing dashed survey line */
+  ctx.strokeStyle = rgba(p.accent, .34);
+  ctx.lineWidth = 1.4;
+  ctx.setLineDash([4, 7]);
+  ctx.lineDashOffset = -t * 13;
+  ctx.beginPath();
+  for (let i = 0; i < ZONES.length; i++) {
+    const z = ZONES[i];
+    if (i === 0) ctx.moveTo(z.sx, z.sy); else ctx.lineTo(z.sx, z.sy);
+  }
+  ctx.stroke();
+  ctx.setLineDash([]);
+
+  ZONES.forEach((z, i) => {
+    /* node */
+    ctx.fillStyle = p.css;
+    ctx.beginPath(); ctx.arc(z.sx, z.sy, 4, 0, 6.2832); ctx.fill();
+
+    /* pulse ring */
+    const a = .32 + Math.sin(t * 1.9 + i * 1.4) * .26;
+    ctx.strokeStyle = rgba(p.accent, a);
+    ctx.lineWidth = 1.3;
+    ctx.beginPath(); ctx.arc(z.sx, z.sy, 13 + Math.sin(t * 1.9 + i) * 2, 0, 6.2832); ctx.stroke();
+
+    /* label placement with edge-aware flipping */
+    let lx = z.sx + 18, ly = z.sy - 12;
+    if (lx + z.ew > W - 12) lx = z.sx - 18 - z.ew;
+    if (ly < uiTop - 8) ly = z.sy + 16;
+    if (ly + z.eh > uiBottom) ly = z.sy - z.eh - 16;
+    if (ly < 4) ly = 4;
+    z.el.style.transform = 'translate3d(' + Math.round(lx) + 'px,' + Math.round(ly) + 'px,0)';
+
+    /* leader from node to chip */
+    const tx = lx > z.sx ? lx - 4 : lx + z.ew + 4;
+    ctx.strokeStyle = rgba(p.accent, .22);
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(z.sx + (lx > z.sx ? 6 : -6), z.sy - 4);
+    ctx.lineTo(tx, ly + z.eh * .5);
+    ctx.stroke();
+  });
+}
+
+/* ---------- Frame loop ---------- */
+let lastNow = 0, timbreClock = 0, ambientClock = 0, mAcc = 0, mN = 0;
+function frame(now){
+  requestAnimationFrame(frame);
+  if (resizePending) resize();
+
+  const t = now / 1000;
+  const dt = lastNow ? clamp((now - lastNow) / 1000, 0, .05) : .016;
+  lastNow = now;
+
+  /* idle → autonomous life */
+  if (t - rt.lastInput > 3.5 && state.drift && !state.reduce) autoDrift(t);
+
+  /* eased parallax + eased pointer */
+  const k = smooth(.055, dt);
+  panX += (targetPanX - panX) * k;
+  panY += (targetPanY - panY) * k;
+  const pk = smooth(.18, dt);
+  pointer.x += (pointer.tx - pointer.x) * pk;
+  pointer.y += (pointer.ty - pointer.y) * pk;
+
+  /* decay the energy field — one exponent per frame, not per cell */
+  if (energy) {
+    const decay = Math.pow(.86, 60 * dt);
+    for (let i = 0, n = energy.length; i < n; i++) {
+      const e = energy[i];
+      if (e > .001) energy[i] = e * decay;
+      else if (e !== 0) energy[i] = 0;
     }
+  }
 
-    view.addEventListener('mousemove', e => handlePointer(e.clientX, e.clientY));
-    
-    view.addEventListener('touchmove', e => {
-      e.preventDefault();
-      handlePointer(e.touches[0].clientX, e.touches[0].clientY);
-    }, { passive: false });
+  /* Adaptive quality — we measure CPU work per frame, not the rAF interval,
+     so a 30 Hz battery-saver cap is never mistaken for a slow device. */
+  const workStart = performance.now();
+  updateRipples(dt);
+  render(t, dt);
+  updateBreath();
+  mAcc += performance.now() - workStart; mN++;
+  if (mN >= 90) {
+    if (mAcc / mN > 11 && quality.level > 0) setQuality(quality.level - 1);
+    mAcc = 0; mN = 0;
+  }
 
-    // Add touchstart for immediate, accurate tap feedback on mobile screens
-    view.addEventListener('touchstart', e => {
-      handlePointer(e.touches[0].clientX, e.touches[0].clientY);
-    }, { passive: true });
+  /* zone-reactive audio, throttled */
+  if (t - timbreClock > .12) { timbreClock = t; Audio.updateTimbre(pointer.x, pointer.y); }
+}
 
-    listenBtn.addEventListener('click', () => {
-      startAudio();
-      introScreen.style.opacity = '0';
-      setTimeout(() => introScreen.remove(), 1000);
-      triggerEffect(w/2, h/2);
-      soundToggle.innerText = 'SOUND: ON';
-      soundToggle.classList.add('bg-[#FFDAB9]', 'text-gray-900');
-      soundToggle.classList.remove('bg-gray-900/80', 'text-[#FFDAB9]');
+function setQuality(l){
+  quality.level = l;
+  if (l <= 1) quality.dprMax = 1.5;
+  if (l <= 0) { quality.dprMax = 1; quality.dust = false; quality.glow = false; seedDust(); }
+  resizePending = true;
+}
+
+/** Autonomous, human-feeling motion when the visitor is still. */
+function autoDrift(t){
+  const amp = Math.min(W, H) * .3;
+  const x = W * .5 + Math.sin(t * .13) * amp;
+  const y = H * .44 + Math.sin(t * .093 + 1.7) * amp * .58;
+  pointer.tx = x; pointer.ty = y; pointer.active = true;
+  targetPanX = (x / W - .5) * 120 * (state.motion / 100);
+  targetPanY = (y / H - .5) * 120 * (state.motion / 100);
+  if (t - ambientClock > 4 + Math.random() * 4) {
+    ambientClock = t;
+    const z = ZONES[(Math.random() * ZONES.length) | 0];
+    spawn(z.sx || x, z.sy || y, .8);
+    Audio.pluck(z.sx || x, z.sy || y);
+  }
+}
+
+/* ---------- Breathing guide (audio LFO and DOM share one clock) ---------- */
+let lastInhale = true;
+function breathPhase(){
+  const now = Audio.ctx ? Audio.ctx.currentTime : performance.now() / 1000;
+  return mod((now - Audio.breathStart) / BREATH_PERIOD, 1);
+}
+function updateBreath(){
+  if (!state.breath) return;
+  const bp = breathPhase();
+  const inhale = bp < .42;
+  const s = inhale ? lerp(.74, 1.2, easeInOut(bp / .42))
+                   : lerp(1.2, .74, easeInOut((bp - .42) / .58));
+  breathRing.style.transform = 'scale(' + s.toFixed(3) + ')';
+  if (inhale !== lastInhale) { lastInhale = inhale; breathTxt.textContent = inhale ? 'inhale' : 'exhale'; }
+}
+
+/* ==========================================================================
+   6 · AUDIO ENGINE
+   master → limiter → out. Drone + air + plucks feed master and a reverb bus.
+   ========================================================================== */
+const Audio = {
+  ctx:null, master:null, comp:null, droneBus:null, airGain:null,
+  verb:null, verbSend:null, lfo:null, breathStart:0, ready:false,
+
+  init(){
+    if (this.ready) return;
+    const AC = window.AudioContext || window.webkitAudioContext;
+    if (!AC) return;
+    const c = this.ctx = new AC();
+
+    /* soft limiter keeps every layer polite */
+    this.comp = c.createDynamicsCompressor();
+    this.comp.threshold.value = -14; this.comp.knee.value = 18;
+    this.comp.ratio.value = 3; this.comp.attack.value = .006; this.comp.release.value = .28;
+    this.comp.connect(c.destination);
+
+    this.master = c.createGain();
+    this.master.gain.value = 0;
+    this.master.connect(this.comp);
+
+    /* reverb bus */
+    this.verb = c.createConvolver();
+    this.verb.buffer = makeIR(c, 2.9, 2.7);
+    const ret = c.createGain(); ret.gain.value = .9;
+    this.verb.connect(ret); ret.connect(this.master);
+    this.verbSend = c.createGain(); this.verbSend.gain.value = .5;
+    this.verbSend.connect(this.verb);
+
+    /* ---- drone bed (D2 + A2 + D3) ---- */
+    this.droneBus = c.createGain();
+    this.droneBus.gain.value = 0;
+    const droneFilter = c.createBiquadFilter();
+    droneFilter.type = 'lowpass'; droneFilter.frequency.value = 420; droneFilter.Q.value = .4;
+    this.droneBus.connect(droneFilter);
+    droneFilter.connect(this.master);
+    droneFilter.connect(this.verbSend);
+
+    [[73.42, 'sine', .5], [110.00, 'sine', .34], [146.83, 'triangle', .12]].forEach(([f, type, g]) => {
+      const o = c.createOscillator(), og = c.createGain();
+      o.type = type; o.frequency.value = f; og.gain.value = g;
+      o.connect(og); og.connect(this.droneBus); o.start();
     });
 
-    soundToggle.addEventListener('click', () => {
-      if (!audioCtx) {
-        startAudio();
-        soundToggle.innerText = 'SOUND: ON';
-        soundToggle.classList.add('bg-[#FFDAB9]', 'text-gray-900');
-        soundToggle.classList.remove('bg-gray-900/80', 'text-[#FFDAB9]');
-      } else {
-        if (isPlaying) {
-          masterGain.gain.linearRampToValueAtTime(0, audioCtx.currentTime + 0.1);
-          isPlaying = false;
-          soundToggle.innerText = 'SOUND: OFF';
-          soundToggle.classList.remove('bg-[#FFDAB9]', 'text-gray-900');
-          soundToggle.classList.add('bg-gray-900/80', 'text-[#FFDAB9]');
-        } else {
-          masterGain.gain.linearRampToValueAtTime(0.6, audioCtx.currentTime + 0.1);
-          isPlaying = true;
-          soundToggle.innerText = 'SOUND: ON';
-          soundToggle.classList.add('bg-[#FFDAB9]', 'text-gray-900');
-          soundToggle.classList.remove('bg-gray-900/80', 'text-[#FFDAB9]');
-        }
-      }
-    });
+    /* breath LFO — 10s coherence cycle, phase-locked to the visual guide */
+    this.lfo = c.createOscillator();
+    this.lfo.frequency.value = 1 / BREATH_PERIOD;
+    const lfoAmt = c.createGain(); lfoAmt.gain.value = .2;
+    this.lfo.connect(lfoAmt); lfoAmt.connect(this.droneBus.gain);
+    this.lfo.start();
+    this.breathStart = c.currentTime;
 
-    function draw() {
-      ctx.fillStyle = '#050a0f';
-      ctx.fillRect(0, 0, w, h);
+    /* ---- air texture (looped noise, band-passed) ---- */
+    const noise = c.createBufferSource();
+    noise.buffer = makeNoise(c, 4);
+    noise.loop = true;
+    const bp = c.createBiquadFilter();
+    bp.type = 'bandpass'; bp.frequency.value = 760; bp.Q.value = .7;
+    this.airGain = c.createGain(); this.airGain.gain.value = 0;
+    noise.connect(bp); bp.connect(this.airGain);
+    this.airGain.connect(this.master);
+    this.airGain.connect(this.verbSend);
+    noise.start();
 
-      // Smooth easing for motion
-      panX += (targetPanX - panX) * 0.04;
-      panY += (targetPanY - panY) * 0.04;
+    this.ready = true;
+    this.applyDrone(); this.applyAir(); this.applyMaster();
+  },
 
-      // Update interactive waves
-      splashes.forEach(s => {
-        s.radius += 14;
-        s.life *= 0.92;
-        
-        panels.forEach(p => {
-          let rawX = p.cx + panX;
-          let rawY = p.cy + panY;
-          let px = ((rawX % gridW) + gridW) % gridW - panelSize;
-          let py = ((rawY % gridH) + gridH) % gridH - panelSize;
-          
-          const dx = px + panelSize/2 - s.x;
-          const dy = py + panelSize/2 - s.y;
-          
-          if (Math.abs(dx) < s.radius + panelSize && Math.abs(dy) < s.radius + panelSize) {
-            const dist = Math.sqrt(dx*dx + dy*dy);
-            if (Math.abs(dist - s.radius) < panelSize * 1.5) {
-              p.energy += 0.45 * s.life;
-            }
-          }
-        });
-      });
-      splashes = splashes.filter(s => s.life > 0.02);
+  /* ---- gain plumbing (click-free, but effectively instant) ---- */
+  applyMaster(){
+    if (!this.ready) return;
+    const target = rt.muted ? 0 : (state.volume / 100) * .92;
+    const t = this.ctx.currentTime, g = this.master.gain;
+    g.cancelScheduledValues(t); g.setValueAtTime(g.value, t);
+    g.linearRampToValueAtTime(target, t + (rt.muted ? .018 : .06));
+  },
+  applyDrone(){
+    if (!this.ready) return;
+    const g = this.droneBus.gain, t = this.ctx.currentTime;
+    g.cancelScheduledValues(t); g.setValueAtTime(g.value, t);
+    g.linearRampToValueAtTime((state.drone / 100) * .5, t + .25);
+  },
+  applyAir(){
+    if (!this.ready) return;
+    this.airGain.gain.setTargetAtTime((state.air / 100) * .05, this.ctx.currentTime, .3);
+  },
 
-      // Draw reflective surface layer
-      panels.forEach(p => {
-        let rawX = p.cx + panX;
-        let rawY = p.cy + panY;
-        let px = ((rawX % gridW) + gridW) % gridW - panelSize;
-        let py = ((rawY % gridH) + gridH) % gridH - panelSize;
-
-        p.energy *= 0.86;
-        if(p.energy > 1) p.energy = 1;
-
-        // Depth-based peach reflection logic
-        let ratio = py / h;
-        if(ratio > 1) ratio = 1;
-        if(ratio < 0) ratio = 0;
-        
-        const r = 255 - ratio * (255 - 20);
-        const g = 218 - ratio * (218 - 30);
-        const b = 185 - ratio * (185 - 45);
-
-        const energyIntensity = p.energy * 255;
-        
-        ctx.fillStyle = `rgb(${Math.min(255, r * 0.35 + energyIntensity)}, ${Math.min(255, g * 0.35 + energyIntensity)}, ${Math.min(255, b * 0.45 + energyIntensity)})`;
-        ctx.fillRect(px, py, panelSize, panelSize);
-      });
-
-      // Overlay interface lines
-      ctx.strokeStyle = 'rgba(255, 218, 185, 0.4)';
-      ctx.lineWidth = 1.5;
-      ctx.setLineDash([4, 6]);
-      ctx.beginPath();
-      
-      const screenZones = zones.map(z => ({
-        x: z.x * w + panX * 0.4,
-        y: z.y * h + panY * 0.4
-      }));
-
-      screenZones.forEach((sz, i) => {
-        if(i === 0) ctx.moveTo(sz.x, sz.y);
-        else ctx.lineTo(sz.x, sz.y);
-      });
-      ctx.stroke();
-      ctx.setLineDash([]);
-
-      // Draw map points
-      screenZones.forEach((sz, i) => {
-        ctx.fillStyle = '#FFDAB9';
-        ctx.beginPath();
-        ctx.arc(sz.x, sz.y, 4, 0, Math.PI * 2);
-        ctx.fill();
-
-        ctx.strokeStyle = `rgba(255, 218, 185, ${0.4 + Math.sin(Date.now() * 0.003 + i) * 0.4})`;
-        ctx.beginPath();
-        ctx.arc(sz.x, sz.y, 14, 0, Math.PI * 2);
-        ctx.stroke();
-
-        if(zones[i].element) {
-          zones[i].element.style.transform = `translate(${sz.x + 18}px, ${sz.y - 12}px)`;
-        }
-      });
-
-      window.requestAnimationFrame(draw);
+  /** Region-reactive timbre: air brightens, water darkens, clouds widen. */
+  updateTimbre(x, y){
+    if (!this.ready) return;
+    const w = zoneWeights(x, y);
+    this.airGain.gain.setTargetAtTime((state.air / 100) * .05 * (.45 + w[0] * 1.5), this.ctx.currentTime, .4);
+    this.verbSend.gain.setTargetAtTime(.34 + w[1] * .5, this.ctx.currentTime, .4);
+    /* highlight the region you are "in" — write the DOM only on change */
+    const near = pointer.active ? nearestZone(x, y) : -1;
+    for (let i = 0; i < ZONES.length; i++) {
+      const want = i === near ? '1' : '0';
+      if (ZONES[i].live !== want) { ZONES[i].live = want; ZONES[i].el.dataset.live = want; }
     }
+  },
 
-    build();
-    draw();
-  </script>
+  /** Pentatonic pluck, panned and filtered by position. */
+  pluck(x, y){
+    if (!this.ready || rt.muted || !rt.entered) return;
+    const t = this.ctx.currentTime;
+    if (t - rt.lastPluck < .12) return;
+    rt.lastPluck = t;
+
+    const w = zoneWeights(x, y);
+    const z = ZONES[nearestZone(x, y)];
+    const f = SCALE[(Math.random() * SCALE.length) | 0] * z.mult;
+
+    const c = this.ctx;
+    const osc = c.createOscillator(); osc.type = z.wave; osc.frequency.value = f;
+    const shim = c.createOscillator(); shim.type = 'sine'; shim.frequency.value = f * 1.5;
+    const g = c.createGain(), sg = c.createGain();
+    const filt = c.createBiquadFilter();
+    filt.type = 'lowpass'; filt.frequency.value = 1500 + w[0] * 3400; filt.Q.value = .3;
+
+    const peak = .11 * (.7 + w[2] * .6);
+    const atk = z.mult === 1 ? .05 : .02;
+    const dur = z.mult === .5 ? 2.4 : 1.6;
+
+    osc.connect(g); shim.connect(sg); g.connect(filt); sg.connect(filt);
+
+    let tail = filt;
+    if (c.createStereoPanner) {
+      const pan = c.createStereoPanner();
+      pan.pan.value = clamp((x / W) * 1.6 - .8, -.8, .8);
+      filt.connect(pan); tail = pan;
+    }
+    tail.connect(this.master);
+    const send = c.createGain(); send.gain.value = .4 + w[1] * .6;
+    tail.connect(send); send.connect(this.verb);
+
+    g.gain.setValueAtTime(0, t);
+    g.gain.linearRampToValueAtTime(peak, t + atk);
+    g.gain.exponentialRampToValueAtTime(.0008, t + dur);
+    sg.gain.setValueAtTime(0, t);
+    sg.gain.linearRampToValueAtTime(peak * .3, t + atk * 1.4);
+    sg.gain.exponentialRampToValueAtTime(.0006, t + dur * .8);
+
+    osc.start(t); shim.start(t);
+    osc.stop(t + dur + .05); shim.stop(t + dur + .05);
+    osc.onended = () => {
+      [osc, shim, g, sg, filt, tail, send].forEach(n => { try { n.disconnect(); } catch (e) {} });
+    };
+  },
+
+  suspend(){ if (this.ready && this.ctx.state === 'running') this.ctx.suspend(); },
+  resume(){ if (this.ready && this.ctx.state === 'suspended') this.ctx.resume(); }
+};
+
+function makeIR(c, dur, decay){
+  const rate = c.sampleRate, len = Math.floor(rate * dur);
+  const buf = c.createBuffer(2, len, rate);
+  for (let ch = 0; ch < 2; ch++) {
+    const d = buf.getChannelData(ch);
+    for (let i = 0; i < len; i++) {
+      const t = i / len;
+      d[i] = (Math.random() * 2 - 1) * Math.pow(1 - t, decay) * (1 - Math.exp(-i / (rate * .015)));
+    }
+  }
+  return buf;
+}
+function makeNoise(c, secs){
+  const rate = c.sampleRate, len = Math.floor(rate * secs);
+  const buf = c.createBuffer(1, len, rate), d = buf.getChannelData(0);
+  let last = 0;
+  for (let i = 0; i < len; i++) {
+    const white = Math.random() * 2 - 1;
+    last = (last + .02 * white) / 1.02;             /* gentle pink tilt */
+    d[i] = last * 3.2;
+  }
+  return buf;
+}
+
+/* ---------- Zone math ---------- */
+function zoneWeights(x, y){
+  const out = [0, 0, 0];
+  let total = 0;
+  for (let i = 0; i < ZONES.length; i++) {
+    const z = ZONES[i];
+    const d = Math.hypot(x - z.sx, y - z.sy);
+    const w = 1 / (1 + Math.pow(d / 250, 2));
+    out[i] = w; total += w;
+  }
+  if (total > 0) for (let i = 0; i < 3; i++) out[i] /= total;
+  return out;
+}
+function nearestZone(x, y){
+  let best = 0, bd = 1e9;
+  for (let i = 0; i < ZONES.length; i++) {
+    const z = ZONES[i], d = (x - z.sx) ** 2 + (y - z.sy) ** 2;
+    if (d < bd) { bd = d; best = i; }
+  }
+  return best;
+}
+
+/* ==========================================================================
+   7 · INTERACTION
+   Pointer Events unify mouse + touch; body-level touch-action:none stops
+   scroll-jank while the studio sheet keeps its own pan-y scrolling.
+   ========================================================================== */
+function handlePointer(x, y, power){
+  rt.lastInput = performance.now() / 1000;
+  pointer.tx = x; pointer.ty = y; pointer.active = true;
+  targetPanX = (x / W - .5) * 120 * (state.motion / 100);
+  targetPanY = (y / H - .5) * 120 * (state.motion / 100);
+  if (power) {
+    spawn(x, y, power);
+    Audio.pluck(x, y);
+    pointer.sx = x; pointer.sy = y;
+  } else {
+    /* motion-gated ripples keep the soundscape from chattering */
+    const d = Math.hypot(x - pointer.sx, y - pointer.sy);
+    if (d > 46) { spawn(x, y, .55); Audio.pluck(x, y); pointer.sx = x; pointer.sy = y; }
+  }
+}
+view.addEventListener('pointermove', e => handlePointer(e.clientX, e.clientY, 0), { passive:true });
+view.addEventListener('pointerdown', e => {
+  handlePointer(e.clientX, e.clientY, 1.35);
+  peekUI();
+}, { passive:true });
+view.addEventListener('pointerleave', () => { pointer.active = false; }, { passive:true });
+view.addEventListener('contextmenu', e => e.preventDefault());
+
+/* Keyboard */
+addEventListener('keydown', e => {
+  const tag = (e.target.tagName || '').toLowerCase();
+  if (tag === 'input' && e.key !== 'Escape') return;
+  const k = e.key.toLowerCase();
+  if (k === 'm') { setMuted(!rt.muted); }
+  else if (k === 'h') { setFocus(!rt.focus); }
+  else if (k === 'b') { setToggle('breath'); }
+  else if (k === 'd') { setToggle('drift'); }
+  else if (k === 'p') { cyclePalette(); }
+  else if (k === 's') { setSheet(!rt.sheet); }
+  else if (k === 'f') { toggleFS(); }
+  else if (e.key === 'Escape') { if (rt.sheet) setSheet(false); else if (rt.focus) setFocus(false); }
+  else if (e.key === ' ') {
+    e.preventDefault();
+    const x = W * .5, y = H * .48;
+    spawn(x, y, 1.5); Audio.pluck(x, y);
+  }
+  else if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
+    if (tag === 'input') return;
+    e.preventDefault();
+    setVolume(clamp(state.volume + (e.key === 'ArrowUp' ? 6 : -6), 0, 100));
+  }
+  peekUI();
+}, { passive:false });
+
+/* Battery / politeness */
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) Audio.suspend();
+  else if (rt.entered && !rt.muted) Audio.resume();
+});
+
+/* ==========================================================================
+   8 · UI LAYER
+   ========================================================================== */
+let toastTimer = 0;
+function toast(msg){
+  toastEl.textContent = msg;
+  toastEl.dataset.show = '1';
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => { toastEl.dataset.show = '0'; }, 1900);
+}
+
+/* ---- theming ---- */
+function applyTheme(){
+  const p = pal(), r = document.documentElement.style;
+  document.documentElement.dataset.palette = p.id;
+  r.setProperty('--accent', p.css);
+  r.setProperty('--accent-ink', p.ink);
+  [['--a-04',.04],['--a-08',.08],['--a-14',.14],['--a-26',.26],['--a-45',.45]]
+    .forEach(([k, a]) => r.setProperty(k, rgba(p.accent, a)));
+  buildGlow();
+  syncUI();
+}
+
+/* ---- palette UI (chips + studio cards) ---- */
+const palRow = $('#palRow'), palGrid = $('#palGrid');
+PALETTES.forEach(p => {
+  const chip = document.createElement('button');
+  chip.className = 'pal';
+  chip.dataset.act = 'palette'; chip.dataset.pal = p.id;
+  chip.setAttribute('aria-pressed', 'false');
+  chip.innerHTML = '<span class="sw" style="background:linear-gradient(135deg,' +
+    rgba(p.accent, 1) + ',' + rgba(p.panelTop, 1) + ')"></span>' + p.name;
+  palRow.appendChild(chip);
+
+  const card = document.createElement('button');
+  card.className = 'pal-card';
+  card.dataset.act = 'palette'; card.dataset.pal = p.id;
+  card.setAttribute('aria-pressed', 'false');
+  card.innerHTML = '<span class="sw" style="background:linear-gradient(135deg,' +
+    rgba(p.accent, 1) + ' 0%,' + rgba(p.panelTop, 1) + ' 55%,' + rgba(p.panelDeep, 1) + ' 100%)"></span>' +
+    '<span><b>' + p.name + '</b><em>' + p.note + '</em></span>';
+  palGrid.appendChild(card);
+});
+
+/* ---- one delegated dispatcher, with instant (pointerdown) support ---- */
+const runStamp = new WeakMap();
+function dispatch(el){
+  const now = performance.now();
+  if (now - (runStamp.get(el) || 0) < 300) return;
+  runStamp.set(el, now);
+  const act = el.dataset.act;
+  if (act === 'palette') setPalette(el.dataset.pal);
+  else if (act === 'mute') setMuted(!rt.muted);
+  else if (act === 'focus') setFocus(!rt.focus);
+  else if (act === 'sheet') setSheet(!rt.sheet);
+  else if (act === 'fs') toggleFS();
+  else if (act === 'breath') setToggle('breath');
+  else if (act === 'drift') setToggle('drift');
+  else if (act === 'toggle') setToggle(el.dataset.key);
+}
+document.addEventListener('pointerdown', e => {
+  const el = e.target.closest('[data-act]');
+  if (!el || el.dataset.instant !== '1') return;
+  e.preventDefault();
+  dispatch(el);
+}, { passive:false });
+document.addEventListener('click', e => {
+  const el = e.target.closest('[data-act]');
+  if (el) dispatch(el);
+});
+scrimEl.addEventListener('pointerdown', e => { e.preventDefault(); setSheet(false); }, { passive:false });
+
+/* ---- bound sliders (dock + studio stay in sync) ---- */
+const bindInputs = $$('[data-bind]');
+function fillRange(input){
+  const min = +input.min || 0, max = +input.max || 100;
+  input.style.setProperty('--fill', (((+input.value - min) / (max - min)) * 100).toFixed(1) + '%');
+}
+bindInputs.forEach(input => {
+  input.value = state[input.dataset.bind];
+  fillRange(input);
+  input.addEventListener('input', () => {
+    const key = input.dataset.bind;
+    state[key] = +input.value;
+    bindInputs.forEach(i => { if (i.dataset.bind === key) { i.value = input.value; fillRange(i); } });
+    applySetting(key);
+  }, { passive:true });
+});
+function applySetting(key){
+  persist();
+  if (key === 'volume') { Audio.applyMaster(); volPct.textContent = state.volume; }
+  else if (key === 'drone') Audio.applyDrone();
+  else if (key === 'air') Audio.applyAir();
+  syncOutputs();
+}
+
+/* ---- state setters ---- */
+function setPalette(id){
+  if (!PAL[id] || state.paletteId === id) return;
+  state.paletteId = id; persist(); applyTheme();
+  toast(PAL[id].name + ' · ' + PAL[id].note);
+  spawn(W * .5, H * .45, 1.1);
+}
+function cyclePalette(){
+  const i = PALETTES.findIndex(p => p.id === state.paletteId);
+  setPalette(PALETTES[(i + 1) % PALETTES.length].id);
+}
+function setVolume(v){
+  state.volume = Math.round(v); persist();
+  bindInputs.forEach(i => { if (i.dataset.bind === 'volume') { i.value = state.volume; fillRange(i); } });
+  volPct.textContent = state.volume;
+  if (rt.muted && state.volume > 0) setMuted(false, true);
+  else Audio.applyMaster();
+  syncOutputs();
+  toast('Volume ' + state.volume + '%');
+}
+function setMuted(m, quiet){
+  rt.muted = m;
+  if (m) Audio.applyMaster();          /* ramp to zero in 18ms — instant, click-free */
+  else {
+    if (!Audio.ready) Audio.init();
+    Audio.resume(); Audio.applyMaster();
+  }
+  syncUI();
+  if (!quiet) toast(m ? 'Muted' : 'Sound on');
+}
+function setToggle(key){
+  state[key] = !state[key]; persist();
+  if (key === 'grain') document.body.dataset.grain = state.grain ? 'on' : 'off';
+  if (key === 'reduce') {
+    quality.dprMax = state.reduce ? 1.5 : 2;
+    quality.dust = !state.reduce;
+    if (state.reduce) { targetPanX = 0; targetPanY = 0; }
+    seedDust(); resizePending = true;
+  }
+  if (key === 'breath') breathEl.dataset.on = (state.breath && rt.entered) ? '1' : '0';
+  if (key === 'drift') rt.lastInput = -99;
+  syncUI();
+  toast((key === 'breath' ? 'Breathing guide' : key === 'drift' ? 'Auto drift'
+        : key === 'grain' ? 'Film grain' : 'Reduced motion') + (state[key] ? ' on' : ' off'));
+}
+function setFocus(on){
+  rt.focus = on;
+  document.body.dataset.focus = on ? '1' : '0';
+  if (on) setSheet(false);
+  clearTimeout(peekTimer); peekTimer = 0;
+  peekLock = on ? performance.now() : 0;
+  syncUI();
+  if (on) toast('Focus mode · press H or tap to reveal');
+}
+let peekTimer = 0, peekLock = 0;
+function peekUI(){
+  if (!rt.focus) return;
+  if (performance.now() - peekLock < 1400) return;
+  $$('.ui').forEach(el => el.classList.add('peek'));
+  clearTimeout(peekTimer);
+  peekTimer = setTimeout(() => $$('.ui').forEach(el => el.classList.remove('peek')), 2800);
+}
+function setSheet(open){
+  rt.sheet = open;
+  sheetEl.dataset.open = open ? '1' : '0';
+  scrimEl.dataset.open = open ? '1' : '0';
+  if (open) measureZones();
+}
+function toggleFS(){
+  const d = document;
+  if (d.fullscreenElement || d.webkitFullscreenElement) {
+    (d.exitFullscreen || d.webkitExitFullscreen).call(d);
+  } else {
+    const el = d.documentElement;
+    (el.requestFullscreen || el.webkitRequestFullscreen).call(el);
+  }
+}
+['fullscreenchange', 'webkitfullscreenchange'].forEach(ev =>
+  addEventListener(ev, () => {
+    const on = !!(document.fullscreenElement || document.webkitFullscreenElement);
+    const b = $('[data-act="fs"]');
+    if (b) b.setAttribute('aria-pressed', on ? 'true' : 'false');
+  }, { passive:true }));
+
+/* ---- reflect state into the DOM ---- */
+function syncUI(){
+  $('#muteBtn').setAttribute('aria-pressed', rt.muted ? 'true' : 'false');
+  $('#muteBtn').setAttribute('aria-label', rt.muted ? 'Unmute sound' : 'Mute sound');
+  $('[data-act="focus"]').setAttribute('aria-pressed', rt.focus ? 'true' : 'false');
+  $('[data-act="breath"]').setAttribute('aria-pressed', state.breath ? 'true' : 'false');
+  $('[data-act="drift"]').setAttribute('aria-pressed', state.drift ? 'true' : 'false');
+  breathEl.dataset.on = (state.breath && rt.entered) ? '1' : '0';
+  document.body.dataset.grain = state.grain ? 'on' : 'off';
+  $$('[data-act="palette"]').forEach(b =>
+    b.setAttribute('aria-pressed', b.dataset.pal === state.paletteId ? 'true' : 'false'));
+  $$('[data-act="toggle"]').forEach(b =>
+    b.setAttribute('aria-checked', state[b.dataset.key] ? 'true' : 'false'));
+  volPct.textContent = state.volume;
+  syncOutputs();
+}
+function syncOutputs(){
+  $$('[data-out]').forEach(el => {
+    const v = state[el.dataset.out];
+    el.textContent = el.dataset.out === 'motion' ? Math.round(v) + '%' : Math.round(v);
+  });
+}
+
+/* ==========================================================================
+   9 · ENTRY
+   ========================================================================== */
+function enter(withSound){
+  rt.entered = true;
+  if (withSound) {
+    Audio.init();
+    Audio.resume();
+    rt.muted = false;
+  } else {
+    Audio.init();
+    rt.muted = true;
+  }
+  Audio.applyMaster();
+  introEl.dataset.hidden = '1';
+  setTimeout(() => introEl.remove(), 1000);
+  /* a welcoming bloom in the middle of the field */
+  const x = W * .5, y = H * .46;
+  spawn(x, y, 1.6);
+  setTimeout(() => { spawn(x, y, 1.1); Audio.pluck(x, y); }, 260);
+  setTimeout(() => { spawn(x, y, .8); Audio.pluck(x, y); }, 620);
+  syncUI();
+  setTimeout(() => toast(withSound ? 'Welcome · move to explore' : 'Silent mode · press M for sound'), 1100);
+  rt.lastInput = performance.now() / 1000;
+}
+$('#enterSound').addEventListener('click', () => enter(true));
+$('#enterSilent').addEventListener('click', () => enter(false));
+/* Safety net: any gesture anywhere can unlock audio on strict browsers */
+addEventListener('pointerdown', () => { if (rt.entered && !rt.muted) Audio.resume(); }, { passive:true, once:true });
+
+/* Fullscreen availability (hidden entirely where unsupported) */
+if (document.documentElement.requestFullscreen || document.documentElement.webkitRequestFullscreen) {
+  const b = $('[data-act="fs"]'); if (b) b.hidden = false;
+}
+
+/* ==========================================================================
+   10 · BOOT
+   ========================================================================== */
+/* Follow the OS motion preference live, without double-toggling */
+if (typeof mqReduce.addEventListener === 'function') {
+  mqReduce.addEventListener('change', e => {
+    state.reduce = e.matches; persist();
+    quality.dprMax = state.reduce ? 1.5 : 2;
+    quality.dust = !state.reduce;
+    if (state.reduce) { targetPanX = 0; targetPanY = 0; }
+    seedDust(); resizePending = true; syncUI();
+    toast(state.reduce ? 'Reduced motion on' : 'Reduced motion off');
+  });
+}
+
+applyTheme();
+resize();
+syncUI();
+pointer.x = pointer.tx = W * .5;
+pointer.y = pointer.ty = H * .45;
+requestAnimationFrame(frame);
+
+})();
+</script>
 </body>
 </html>
