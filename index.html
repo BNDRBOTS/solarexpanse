@@ -1,75 +1,188 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" class="antialiased">
 <head>
   <meta charset="UTF-8">
-  <!-- Added viewport-fit=cover for safe-area compliance on notched screens -->
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
   <title>Therapeutic Solar Expanse</title>
   <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            bone: '#F4F1EA',
+            mint: '#A7E4CD',
+            deep: '#0A0F0D',
+            surface: '#131B17',
+          },
+          fontFamily: {
+            sans: ['Inter', 'ui-sans-serif', 'system-ui', '-apple-system', 'sans-serif'],
+          }
+        }
+      }
+    }
+  </script>
   <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&display=swap');
+    
+    :root {
+      --sat: env(safe-area-inset-top);
+      --sar: env(safe-area-inset-right);
+      --sab: env(safe-area-inset-bottom);
+      --sal: env(safe-area-inset-left);
+    }
+    
     body { 
       margin: 0; 
       overflow: hidden; 
-      background-color: #050505; 
+      background-color: #0A0F0D; 
       touch-action: none; 
-      font-family: ui-sans-serif, system-ui, sans-serif; 
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+      color: #F4F1EA;
     }
+    
     canvas { 
       display: block; 
       width: 100vw; 
       height: 100vh; 
       user-select: none;
       -webkit-user-select: none;
+      outline: none;
     }
+
+    /* Glassmorphism utilities */
+    .glass {
+      background: rgba(19, 27, 23, 0.4);
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+      border: 1px solid rgba(167, 228, 205, 0.1);
+    }
+    
+    .glass-strong {
+      background: rgba(10, 15, 13, 0.7);
+      backdrop-filter: blur(24px);
+      -webkit-backdrop-filter: blur(24px);
+    }
+
     .zone-label {
       position: absolute;
       top: 0; left: 0;
-      color: #FFDAB9;
-      font-size: 0.75rem;
+      color: #F4F1EA;
+      font-size: 0.65rem;
       font-weight: 600;
-      letter-spacing: 0.15em;
-      background: rgba(17, 24, 39, 0.85);
-      padding: 6px 12px;
-      border-left: 2px solid #FFDAB9;
+      letter-spacing: 0.25em;
+      padding: 8px 16px;
+      border-radius: 9999px;
       pointer-events: none;
-      backdrop-filter: blur(4px);
-      box-shadow: 0 4px 10px rgba(0,0,0,0.5);
       will-change: transform;
       text-transform: uppercase;
       user-select: none;
       -webkit-user-select: none;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      box-shadow: 0 8px 32px -4px rgba(0,0,0,0.6);
+      transition: opacity 0.5s ease;
+      background: rgba(19, 27, 23, 0.6);
+      backdrop-filter: blur(8px);
+      -webkit-backdrop-filter: blur(8px);
+      border: 1px solid rgba(167, 228, 205, 0.15);
+    }
+
+    .zone-label::before {
+      content: '';
+      display: block;
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background-color: #A7E4CD;
+      box-shadow: 0 0 10px #A7E4CD, 0 0 20px #A7E4CD;
+    }
+
+    @keyframes pulse-glow {
+      0%, 100% { transform: scale(1); opacity: 0.5; }
+      50% { transform: scale(1.05); opacity: 0.8; }
+    }
+    
+    .animate-pulse-glow {
+      animation: pulse-glow 3s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+    }
+
+    /* Transition utilities */
+    .fade-enter { opacity: 0; transform: translateY(10px); pointer-events: none; }
+    .fade-enter-active { opacity: 1; transform: translateY(0); transition: opacity 0.8s ease, transform 0.8s ease; pointer-events: auto; }
+    
+    /* Layout utilities respecting safe areas */
+    .safe-top-right {
+      top: max(1.5rem, var(--sat, 1.5rem));
+      right: max(1.5rem, var(--sar, 1.5rem));
     }
   </style>
 </head>
-<body class="w-screen h-screen">
+<body>
   
   <canvas id="view"></canvas>
   
-  <!-- Interface Annotations Container -->
-  <div id="labels"></div>
+  <div id="labels" class="absolute inset-0 pointer-events-none z-30 opacity-0 transition-opacity duration-1000"></div>
   
-  <!-- Scaled touch dimensions: min-h-[44px] min-w-[44px], flex, select-none, touch-manipulation -->
-  <button id="sound-toggle" class="fixed top-6 right-6 z-40 flex items-center justify-center min-h-[44px] min-w-[44px] bg-gray-900/80 text-[#FFDAB9] border border-[#FFDAB9]/50 rounded-full px-5 py-2 md:px-4 md:py-2 text-xs md:text-sm font-bold tracking-widest backdrop-blur-md shadow-[0_0_15px_rgba(255,218,185,0.1)] hover:bg-[#FFDAB9] hover:text-gray-900 transition-all duration-300 focus:outline-none focus:ring-2 focus:ring-[#FFDAB9] cursor-pointer select-none touch-manipulation" aria-label="Toggle Sound">SOUND: OFF</button>
-  
-  <!-- Accessible Entry Interface (WCAG AAA Contrast: #111827 vs #FFDAB9) -->
-  <div id="intro" class="fixed inset-0 z-50 flex items-center justify-center bg-black/90 backdrop-blur-md transition-opacity duration-1000">
-    <button id="listen-btn" class="px-10 py-5 min-h-[44px] flex items-center justify-center bg-gray-900 text-[#FFDAB9] border-2 border-[#FFDAB9] rounded-full font-bold text-xl tracking-widest shadow-[0_0_40px_rgba(255,218,185,0.15)] hover:bg-[#FFDAB9] hover:text-gray-900 transition-all duration-300 cursor-pointer select-none touch-manipulation" aria-label="Listen and enter the experience">
-      LISTEN
+  <!-- Sleek Audio Controls -->
+  <div class="fixed safe-top-right z-40 flex items-center fade-enter" id="audio-control-wrapper">
+    <button id="sound-toggle" class="glass pointer-events-auto flex items-center justify-center h-12 w-12 sm:h-auto sm:w-auto sm:px-5 sm:py-2.5 rounded-full text-mint hover:bg-mint hover:text-deep transition-all duration-300 focus:outline-none focus:ring-2 focus:ring-mint/50 cursor-pointer select-none touch-manipulation group shadow-[0_0_20px_rgba(167,228,205,0.05)]" aria-label="Toggle Sound">
+      
+      <span class="sm:flex items-center gap-2 hidden" id="sound-label-desktop">
+        <svg id="icon-volume-on" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.536 8.464a5 5 0 010 7.072m2.828-9.9a9 9 0 010 12.728M5 10v4a2 2 0 002 2h2.286l4.02 4.02A1 1 0 0015 19V5a1 1 0 00-1.707-.707L9.286 8H7a2 2 0 00-2 2z"/></svg>
+        <svg id="icon-volume-off" class="w-4 h-4 hidden" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z" /><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2" /></svg>
+        <span class="text-xs font-semibold tracking-[0.15em] label-text">AUDIO ON</span>
+      </span>
+      <span class="sm:hidden flex items-center justify-center" id="sound-label-mobile">
+         <svg id="icon-volume-on-mobile" class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.536 8.464a5 5 0 010 7.072m2.828-9.9a9 9 0 010 12.728M5 10v4a2 2 0 002 2h2.286l4.02 4.02A1 1 0 0015 19V5a1 1 0 00-1.707-.707L9.286 8H7a2 2 0 00-2 2z"/></svg>
+         <svg id="icon-volume-off-mobile" class="w-5 h-5 hidden" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z" /><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2" /></svg>
+      </span>
     </button>
+  </div>
+  
+  <!-- Accessible Entry Interface -->
+  <div id="intro" class="fixed inset-0 z-50 flex items-center justify-center glass-strong transition-all duration-1000 opacity-100">
+    <div class="text-center max-w-md px-6 flex flex-col items-center">
+      <h1 class="text-3xl sm:text-4xl font-light tracking-[0.3em] text-bone mb-3 opacity-90 ml-[0.3em]">EXPANSE</h1>
+      <div class="h-[1px] w-12 bg-mint/50 mb-4 rounded-full"></div>
+      <p class="text-xs text-mint/80 mb-12 tracking-[0.2em] font-medium uppercase">Therapeutic Resonance</p>
+      
+      <button id="listen-btn" class="relative inline-flex items-center justify-center px-10 py-4 min-h-[52px] bg-mint text-deep rounded-full font-semibold text-sm tracking-[0.2em] hover:scale-105 transition-transform duration-500 cursor-pointer select-none touch-manipulation group outline-none focus:ring-4 focus:ring-mint/30">
+        <span class="absolute inset-0 rounded-full bg-mint blur-xl opacity-40 animate-pulse-glow group-hover:opacity-80 transition-opacity duration-500"></span>
+        <span class="relative flex items-center gap-3">
+          <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+          ENTER
+        </span>
+      </button>
+    </div>
   </div>
 
   <script>
+    // Elements
     const view = document.getElementById('view');
-    const ctx = view.getContext('2d');
+    const ctx = view.getContext('2d', { alpha: false });
     const labelsDiv = document.getElementById('labels');
     const listenBtn = document.getElementById('listen-btn');
     const introScreen = document.getElementById('intro');
     const soundToggle = document.getElementById('sound-toggle');
+    const audioControlWrapper = document.getElementById('audio-control-wrapper');
+    const soundLabelText = soundToggle.querySelector('.label-text');
+    
+    const iconVolOn = document.getElementById('icon-volume-on');
+    const iconVolOff = document.getElementById('icon-volume-off');
+    const iconVolOnMobile = document.getElementById('icon-volume-on-mobile');
+    const iconVolOffMobile = document.getElementById('icon-volume-off-mobile');
 
+    // Visual configuration
     let w, h;
+    let dpr = window.devicePixelRatio || 1;
     let panels = [];
-    const panelSize = 55;
-    const gap = 4;
+    
+    // Grid settings tailored for density and aesthetics
+    const panelSize = 48;
+    const gap = 3;
     let splashes = [];
     
     // Grid tracking
@@ -79,11 +192,11 @@
     let panX = 0, panY = 0;
     let targetPanX = 0, targetPanY = 0;
 
-    // Interface points mapping
+    // Interface points mapping - abstracted concept markers
     const zones = [
-      { x: 0.25, y: 0.35, label: "AIR", element: null },
-      { x: 0.75, y: 0.45, label: "CLOUDS", element: null },
-      { x: 0.45, y: 0.80, label: "WATER", element: null }
+      { x: 0.25, y: 0.35, label: "Breathe", element: null },
+      { x: 0.75, y: 0.45, label: "Flow", element: null },
+      { x: 0.45, y: 0.80, label: "Drift", element: null }
     ];
 
     // Audio context variables
@@ -91,12 +204,28 @@
     let isPlaying = false;
     let lastPluck = 0;
     
-    // Warm pentatonic frequencies
+    // Warm therapeutic frequencies (Mint & Bone tonal mapping)
+    // Low G pentatonic - expansive and grounding
     const scale = [196.00, 220.00, 261.63, 293.66, 329.63, 392.00, 440.00];
 
+    // Throttle resize handler to prevent jank
+    let resizeTimeout;
+    function debounceResize() {
+      clearTimeout(resizeTimeout);
+      resizeTimeout = setTimeout(build, 100);
+    }
+
     function build() {
-      w = view.width = window.innerWidth;
-      h = view.height = window.innerHeight;
+      dpr = window.devicePixelRatio || 1;
+      w = window.innerWidth;
+      h = window.innerHeight;
+      
+      view.width = w * dpr;
+      view.height = h * dpr;
+      view.style.width = `${w}px`;
+      view.style.height = `${h}px`;
+      
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       
       panels = [];
       cols = Math.ceil(w / (panelSize + gap)) + 2;
@@ -125,27 +254,68 @@
       });
     }
 
-    // Use passive event listener for resize to prevent scrolling jank
-    window.addEventListener('resize', build, { passive: true });
+    window.addEventListener('resize', debounceResize, { passive: true });
 
-    function startAudio() {
-      if(isPlaying) return;
+    function initAudio() {
+      if(audioCtx) return;
       audioCtx = new (window.AudioContext || window.webkitAudioContext)();
       masterGain = audioCtx.createGain();
       masterGain.connect(audioCtx.destination);
-      masterGain.gain.value = 0.6;
+      masterGain.gain.value = 0; // start muted, fade in
 
-      // Deep therapeutic drone
-      const drone = audioCtx.createOscillator();
-      drone.type = 'sine';
-      drone.frequency.value = 73.42;
+      // Deep therapeutic drone - layered sines for depth
+      const droneBase = audioCtx.createOscillator();
+      droneBase.type = 'sine';
+      droneBase.frequency.value = 73.42; // Low D
+      
+      const droneHarmonic = audioCtx.createOscillator();
+      droneHarmonic.type = 'sine';
+      droneHarmonic.frequency.value = 110; // A
+
       const dGain = audioCtx.createGain();
-      dGain.gain.value = 0.25;
-      drone.connect(dGain);
+      dGain.gain.value = 0.2;
+      
+      droneBase.connect(dGain);
+      droneHarmonic.connect(dGain);
       dGain.connect(masterGain);
-      drone.start();
+      
+      droneBase.start();
+      droneHarmonic.start();
+    }
 
-      isPlaying = true;
+    function toggleAudioState(forcePlay) {
+      if (!audioCtx) initAudio();
+      
+      const shouldPlay = forcePlay !== undefined ? forcePlay : !isPlaying;
+      
+      if (shouldPlay) {
+        audioCtx.resume();
+        masterGain.gain.cancelScheduledValues(audioCtx.currentTime);
+        masterGain.gain.linearRampToValueAtTime(0.6, audioCtx.currentTime + 1.0);
+        isPlaying = true;
+        
+        soundToggle.classList.add('bg-mint', 'text-deep');
+        soundToggle.classList.remove('glass', 'text-mint');
+        soundLabelText.innerText = 'AUDIO ON';
+        
+        iconVolOn.classList.remove('hidden');
+        iconVolOnMobile.classList.remove('hidden');
+        iconVolOff.classList.add('hidden');
+        iconVolOffMobile.classList.add('hidden');
+      } else {
+        masterGain.gain.cancelScheduledValues(audioCtx.currentTime);
+        masterGain.gain.linearRampToValueAtTime(0, audioCtx.currentTime + 0.5);
+        isPlaying = false;
+        
+        soundToggle.classList.remove('bg-mint', 'text-deep');
+        soundToggle.classList.add('glass', 'text-mint');
+        soundLabelText.innerText = 'MUTED';
+        
+        iconVolOn.classList.add('hidden');
+        iconVolOnMobile.classList.add('hidden');
+        iconVolOff.classList.remove('hidden');
+        iconVolOffMobile.classList.remove('hidden');
+      }
     }
 
     function triggerEffect(x, y) {
@@ -154,11 +324,12 @@
       if(!isPlaying || !audioCtx) return;
       
       const now = Date.now();
-      if(now - lastPluck > 120) {
+      if(now - lastPluck > 150) { // Slight throttle for better resonance
         const osc = audioCtx.createOscillator();
         const gain = audioCtx.createGain();
         
-        osc.type = 'triangle';
+        // Softer tone for the mint/bone theme
+        osc.type = 'sine';
         osc.frequency.value = scale[Math.floor(Math.random() * scale.length)];
         
         osc.connect(gain);
@@ -166,20 +337,22 @@
         
         osc.start();
         gain.gain.setValueAtTime(0, audioCtx.currentTime);
-        gain.gain.linearRampToValueAtTime(0.12, audioCtx.currentTime + 0.05);
-        gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 1.5);
-        osc.stop(audioCtx.currentTime + 1.6);
+        gain.gain.linearRampToValueAtTime(0.15, audioCtx.currentTime + 0.08);
+        gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 2.0);
+        osc.stop(audioCtx.currentTime + 2.1);
         
         lastPluck = now;
       }
     }
 
     function handlePointer(x, y) {
-      targetPanX = (x / w - 0.5) * 120;
-      targetPanY = (y / h - 0.5) * 120;
+      // Natural trailing pan effect
+      targetPanX = (x / w - 0.5) * 150;
+      targetPanY = (y / h - 0.5) * 150;
       triggerEffect(x, y);
     }
 
+    // Interaction Listeners
     view.addEventListener('mousemove', e => handlePointer(e.clientX, e.clientY));
     
     view.addEventListener('touchmove', e => {
@@ -187,56 +360,44 @@
       handlePointer(e.touches[0].clientX, e.touches[0].clientY);
     }, { passive: false });
 
-    // Add touchstart for immediate, accurate tap feedback on mobile screens
     view.addEventListener('touchstart', e => {
       handlePointer(e.touches[0].clientX, e.touches[0].clientY);
     }, { passive: true });
 
+    // Entry Sequence
     listenBtn.addEventListener('click', () => {
-      startAudio();
+      toggleAudioState(true);
+      
       introScreen.style.opacity = '0';
-      setTimeout(() => introScreen.remove(), 1000);
+      introScreen.style.pointerEvents = 'none';
+      
+      setTimeout(() => {
+        introScreen.remove();
+        labelsDiv.style.opacity = '1';
+        audioControlWrapper.classList.add('fade-enter-active');
+      }, 1000);
+      
+      // Central trigger burst
       triggerEffect(w/2, h/2);
-      soundToggle.innerText = 'SOUND: ON';
-      soundToggle.classList.add('bg-[#FFDAB9]', 'text-gray-900');
-      soundToggle.classList.remove('bg-gray-900/80', 'text-[#FFDAB9]');
+      setTimeout(() => triggerEffect(w/2, h/2), 200);
     });
 
-    soundToggle.addEventListener('click', () => {
-      if (!audioCtx) {
-        startAudio();
-        soundToggle.innerText = 'SOUND: ON';
-        soundToggle.classList.add('bg-[#FFDAB9]', 'text-gray-900');
-        soundToggle.classList.remove('bg-gray-900/80', 'text-[#FFDAB9]');
-      } else {
-        if (isPlaying) {
-          masterGain.gain.linearRampToValueAtTime(0, audioCtx.currentTime + 0.1);
-          isPlaying = false;
-          soundToggle.innerText = 'SOUND: OFF';
-          soundToggle.classList.remove('bg-[#FFDAB9]', 'text-gray-900');
-          soundToggle.classList.add('bg-gray-900/80', 'text-[#FFDAB9]');
-        } else {
-          masterGain.gain.linearRampToValueAtTime(0.6, audioCtx.currentTime + 0.1);
-          isPlaying = true;
-          soundToggle.innerText = 'SOUND: ON';
-          soundToggle.classList.add('bg-[#FFDAB9]', 'text-gray-900');
-          soundToggle.classList.remove('bg-gray-900/80', 'text-[#FFDAB9]');
-        }
-      }
-    });
+    soundToggle.addEventListener('click', () => toggleAudioState());
 
+    // Main Render Loop
     function draw() {
-      ctx.fillStyle = '#050a0f';
+      // Base dark slate background
+      ctx.fillStyle = '#0A0F0D';
       ctx.fillRect(0, 0, w, h);
 
-      // Smooth easing for motion
-      panX += (targetPanX - panX) * 0.04;
-      panY += (targetPanY - panY) * 0.04;
+      // Easing pan coordinates
+      panX += (targetPanX - panX) * 0.05;
+      panY += (targetPanY - panY) * 0.05;
 
-      // Update interactive waves
+      // Physics integration for wave splashes
       splashes.forEach(s => {
-        s.radius += 14;
-        s.life *= 0.92;
+        s.radius += 12; // wave speed
+        s.life *= 0.94; // decay
         
         panels.forEach(p => {
           let rawX = p.cx + panX;
@@ -249,48 +410,58 @@
           
           if (Math.abs(dx) < s.radius + panelSize && Math.abs(dy) < s.radius + panelSize) {
             const dist = Math.sqrt(dx*dx + dy*dy);
-            if (Math.abs(dist - s.radius) < panelSize * 1.5) {
-              p.energy += 0.45 * s.life;
+            if (Math.abs(dist - s.radius) < panelSize * 1.8) {
+              p.energy += 0.5 * s.life;
             }
           }
         });
       });
-      splashes = splashes.filter(s => s.life > 0.02);
+      splashes = splashes.filter(s => s.life > 0.015);
 
-      // Draw reflective surface layer
+      // Rendering surface panels
       panels.forEach(p => {
         let rawX = p.cx + panX;
         let rawY = p.cy + panY;
         let px = ((rawX % gridW) + gridW) % gridW - panelSize;
         let py = ((rawY % gridH) + gridH) % gridH - panelSize;
 
-        p.energy *= 0.86;
+        p.energy *= 0.88; // energy cooling
         if(p.energy > 1) p.energy = 1;
 
-        // Depth-based peach reflection logic
+        // Depth/Y-axis color interpolation (Deep space -> Mint highlight)
         let ratio = py / h;
         if(ratio > 1) ratio = 1;
         if(ratio < 0) ratio = 0;
         
-        const r = 255 - ratio * (255 - 20);
-        const g = 218 - ratio * (218 - 30);
-        const b = 185 - ratio * (185 - 45);
+        // Base palette targets:
+        // Top (Deep): rgb(14, 20, 17)
+        // Bottom (Lighter): rgb(26, 37, 31)
+        const baseR = 14 + ratio * 12;
+        const baseG = 20 + ratio * 17;
+        const baseB = 17 + ratio * 14;
 
-        const energyIntensity = p.energy * 255;
+        // Energy injection color (Mint: #A7E4CD -> 167, 228, 205)
+        const energyIntensity = p.energy;
         
-        ctx.fillStyle = `rgb(${Math.min(255, r * 0.35 + energyIntensity)}, ${Math.min(255, g * 0.35 + energyIntensity)}, ${Math.min(255, b * 0.45 + energyIntensity)})`;
-        ctx.fillRect(px, py, panelSize, panelSize);
+        const r = baseR + (167 - baseR) * energyIntensity;
+        const g = baseG + (228 - baseG) * energyIntensity;
+        const b = baseB + (205 - baseB) * energyIntensity;
+        
+        ctx.fillStyle = `rgb(${r}, ${g}, ${b})`;
+        
+        // Using optimized fillRect with floating dimensions slightly adjusted to prevent seams
+        ctx.fillRect(Math.floor(px), Math.floor(py), panelSize, panelSize);
       });
 
-      // Overlay interface lines
-      ctx.strokeStyle = 'rgba(255, 218, 185, 0.4)';
-      ctx.lineWidth = 1.5;
-      ctx.setLineDash([4, 6]);
+      // Overlay interface lines - SaaS blueprint style
+      ctx.strokeStyle = 'rgba(167, 228, 205, 0.15)';
+      ctx.lineWidth = 1;
+      ctx.setLineDash([2, 4]);
       ctx.beginPath();
       
       const screenZones = zones.map(z => ({
-        x: z.x * w + panX * 0.4,
-        y: z.y * h + panY * 0.4
+        x: z.x * w + panX * 0.3,
+        y: z.y * h + panY * 0.3
       }));
 
       screenZones.forEach((sz, i) => {
@@ -300,28 +471,33 @@
       ctx.stroke();
       ctx.setLineDash([]);
 
-      // Draw map points
+      // Draw map abstract points
       screenZones.forEach((sz, i) => {
-        ctx.fillStyle = '#FFDAB9';
+        // Core dot
+        ctx.fillStyle = '#A7E4CD';
         ctx.beginPath();
-        ctx.arc(sz.x, sz.y, 4, 0, Math.PI * 2);
+        ctx.arc(sz.x, sz.y, 3, 0, Math.PI * 2);
         ctx.fill();
 
-        ctx.strokeStyle = `rgba(255, 218, 185, ${0.4 + Math.sin(Date.now() * 0.003 + i) * 0.4})`;
+        // Pulsing radar ring
+        ctx.strokeStyle = `rgba(167, 228, 205, ${0.2 + Math.sin(Date.now() * 0.002 + i) * 0.2})`;
+        ctx.lineWidth = 1.5;
         ctx.beginPath();
-        ctx.arc(sz.x, sz.y, 14, 0, Math.PI * 2);
+        ctx.arc(sz.x, sz.y, 12, 0, Math.PI * 2);
         ctx.stroke();
 
+        // Sync HTML overlays smoothly
         if(zones[i].element) {
-          zones[i].element.style.transform = `translate(${sz.x + 18}px, ${sz.y - 12}px)`;
+          zones[i].element.style.transform = `translate3d(${sz.x + 16}px, ${sz.y - 14}px, 0)`;
         }
       });
 
       window.requestAnimationFrame(draw);
     }
 
+    // Initialization
     build();
-    draw();
+    window.requestAnimationFrame(draw);
   </script>
 </body>
 </html>
